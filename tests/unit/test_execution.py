@@ -152,12 +152,35 @@ def test_validate_tx_success(keys, user_keys):
 
 def test_validate_tx_bad_nonce(keys, user_keys):
     state = State()
-    # Expected nonce is 0, but sending nonce=1
+    # Expected nonce is 0, but sending nonce=1 -- signature must pass first
     tx = make_signed_tx(keys, "Alice", "Alice/msg", "val1", 1)
 
     ok, reason = validate_tx(state, tx, user_keys)
     assert ok is False
     assert reason == "bad_nonce"
+
+
+def test_validate_tx_ownership_enforced_at_model_construction():
+    """models.py prevents an invalid owner at construction time."""
+    with pytest.raises(ValueError, match="key must start with the sender"):
+        Tx("Alice", "Bob/msg", "val1", 0)
+
+
+def test_validate_tx_bad_signature_checked_before_nonce(keys, user_keys):
+    """Signature is verified before nonce when user_keys is provided.
+
+    Per CONCEPT_GUIDE: order is signature -> ownership -> nonce.
+    Here the tx has a valid owner but bad signature AND wrong nonce;
+    the result must be bad_signature (checked first), not bad_nonce.
+    """
+    state = State()
+    # Nonce is wrong (1 instead of 0) AND signature is corrupt
+    corrupt_sig = "0" * 128
+    bad_tx = Tx("Alice", "Alice/msg", "val1", 1, signature=corrupt_sig)
+
+    ok, reason = validate_tx(state, bad_tx, user_keys)
+    assert ok is False
+    assert reason == "bad_signature"  # Signature checked before nonce
 
 
 def test_validate_tx_bad_signature(keys, user_keys):

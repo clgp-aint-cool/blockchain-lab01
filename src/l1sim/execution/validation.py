@@ -25,14 +25,22 @@ def validate_tx(
 ) -> tuple[bool, str]:
     """Validate a transaction against current state.
 
-    Returns (True, "") if valid, or (False, reason) where reason is:
+    Checks are performed in order: signature → ownership → nonce (per CONCEPT_GUIDE).
+
+    Args:
+        state: The current application state providing nonce baseline.
+        tx: The transaction to validate.
+        user_keys: Map of sender id to Ed25519PublicKey used to verify the signature.
+            When None, signature verification is skipped — the caller (e.g. node.py)
+            is responsible for verifying the signature before calling this function
+            or passing the block to validate_block.
+
+    Returns (True, "") if valid, or (False, reason) where reason is one of:
     - "bad_signature": signature is invalid or sender has no known key
     - "not_owner": key does not belong to sender (must start with f"{sender}/")
     - "bad_nonce": tx.nonce does not match expected nonce
     """
-    if not tx.key.startswith(f"{tx.sender}/"):
-        return False, "not_owner"
-
+    # 1. Signature check (per CONCEPT_GUIDE order: sig -> ownership -> nonce)
     if user_keys is not None:
         if tx.sender not in user_keys:
             return False, "bad_signature"
@@ -40,6 +48,11 @@ def validate_tx(
         if not verify(pk, Domain.TX, tx, tx.signature):
             return False, "bad_signature"
 
+    # 2. Ownership check
+    if not tx.key.startswith(f"{tx.sender}/"):
+        return False, "not_owner"
+
+    # 3. Nonce check
     expected_nonce = state.get_nonce(tx.sender)
     if tx.nonce != expected_nonce:
         return False, "bad_nonce"

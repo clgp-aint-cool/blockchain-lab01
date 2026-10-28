@@ -19,6 +19,11 @@ class Mempool:
     def add(self, tx: Tx) -> bool:
         """Add a transaction to the mempool.
 
+        Note: Signature verification is NOT performed here. The caller (node.py)
+        is responsible for verifying the signature via validate_tx(user_keys=...)
+        before adding to the mempool. This design keeps the mempool dependency-free
+        from cryptographic keys.
+
         Returns True if added, False if a transaction with the same (sender, nonce) exists.
         """
         key = (tx.sender, tx.nonce)
