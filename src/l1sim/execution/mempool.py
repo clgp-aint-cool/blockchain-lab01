@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from l1sim.execution.state import State
+from l1sim.execution.state import State, apply_tx
 from l1sim.execution.validation import validate_tx
 from l1sim.models import Tx
 
@@ -49,8 +49,7 @@ class Mempool:
             ok, _ = validate_tx(temp_state, tx)
             if ok:
                 selected.append(tx)
-                # Advance nonce in temp_state so subsequent nonces for same sender can be selected
-                temp_state.nonces[tx.sender] = temp_state.get_nonce(tx.sender) + 1
+                temp_state = apply_tx(temp_state, tx)
 
         return selected
 

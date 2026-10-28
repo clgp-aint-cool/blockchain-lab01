@@ -46,6 +46,9 @@ def validate_tx(
             return False, "bad_signature"
         pk = user_keys[tx.sender]
         if not verify(pk, Domain.TX, tx, tx.signature):
+            for other_domain in (Domain.HEADER, Domain.VOTE, Domain.HELLO):
+                if verify(pk, other_domain, tx, tx.signature):
+                    return False, "wrong_domain"
             return False, "bad_signature"
 
     # 2. Ownership check
@@ -94,6 +97,9 @@ def validate_block(
             return False, "bad_signature"
         proposer_pk = validator_keys[header.proposer]
         if not verify(proposer_pk, Domain.HEADER, header, header.signature):
+            for other_domain in (Domain.TX, Domain.VOTE, Domain.HELLO):
+                if verify(proposer_pk, other_domain, header, header.signature):
+                    return False, "wrong_domain"
             return False, "bad_signature"
 
     if header.tx_root != compute_tx_root(block.txs):

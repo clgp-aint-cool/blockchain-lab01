@@ -203,7 +203,7 @@ def test_validate_tx_wrong_domain(keys, user_keys):
 
     ok, reason = validate_tx(state, bad_tx, user_keys)
     assert ok is False
-    assert reason == "bad_signature"
+    assert reason == "wrong_domain"
 
 
 def test_validate_tx_unknown_sender(keys, user_keys):
@@ -330,6 +330,42 @@ def test_validate_block_bad_signature(keys, validator_keys, user_keys):
     )
     assert ok is False
     assert reason == "bad_signature"
+
+
+def test_validate_block_wrong_domain(keys, validator_keys, user_keys):
+    state = State()
+    tx_root = compute_tx_root(())
+    header = BlockHeader(
+        height=1,
+        round=0,
+        parent_hash=GENESIS_HASH,
+        tx_root=tx_root,
+        state_hash=state.state_hash(),
+        proposer="V0",
+    )
+    # Header signed with Domain.TX instead of Domain.HEADER
+    wrong_sig = sign(keys["V0"].private_key, Domain.TX, header)
+    signed_header = BlockHeader(
+        height=1,
+        round=0,
+        parent_hash=GENESIS_HASH,
+        tx_root=tx_root,
+        state_hash=state.state_hash(),
+        proposer="V0",
+        signature=wrong_sig,
+    )
+    block = Block(header=signed_header, txs=())
+
+    ok, reason = validate_block(
+        block=block,
+        parent_hash=GENESIS_HASH,
+        state=state,
+        expected_proposer="V0",
+        validator_keys=validator_keys,
+        user_keys=user_keys,
+    )
+    assert ok is False
+    assert reason == "wrong_domain"
 
 
 def test_validate_block_bad_tx_root(keys, validator_keys, user_keys):
