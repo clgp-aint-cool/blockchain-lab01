@@ -667,6 +667,8 @@ flowchart LR
 
 *V1 và V2 phải vote cả A lẫn B. Chỉ có 1 Byzantine, nên ít nhất một trong hai là honest, mà honest không bao giờ vote 2 block cùng round. Vì vậy A và B không thể cùng đạt quorum.*
 
+**Công thức trong code:** `quorum = n − f` với `f = (n − 1) // 3`. Khi n = 3f + 1 thì n − f = 2f + 1, nên hai cách viết cho cùng kết quả, ví dụ n = 10 thì cả hai đều là 7. Code dùng n − f vì nó vẫn an toàn khi n **không** có dạng 3f + 1. Ví dụ n = 8: f = 2, nếu dùng 2f + 1 = 5 thì hai nhóm 5 node trong 8 node chỉ chắc chắn chung nhau 5 + 5 − 8 = 2 node, mà cả 2 có thể là Byzantine, nên **không an toàn**. Dùng n − f = 6 thì hai nhóm chung nhau ít nhất 6 + 6 − 8 = 4 node, nhiều hơn f, nên luôn có ít nhất một honest node chung.
+
 ### Safety vs Liveness
 
 - **Safety** = "điều xấu không bao giờ xảy ra": không bao giờ 2 block khác nhau finalized ở cùng height. **Phải đúng mọi lúc**, kể cả mạng tệ.
@@ -790,6 +792,84 @@ flowchart TD
     Q2 -- "có" --> LC["Đổi lock sang C<br/>locked_round = round đó<br/>prevote C"]
     FIN["Block của height này được finalize"] -- "sang height mới, xóa lock" --> U2["Unlocked ở height mới"]
 ```
+
+### Locking chi tiết: vì sao lock phải giữ qua nhiều round
+
+**Lock không "chờ" gì cả.** Lock là điều node **ghi nhớ**: "ở round r, tôi đã thấy polka cho B". Lock được giữ **suốt cả height**, qua nhiều round, và chỉ thay đổi trong 2 trường hợp:
+
+1. **Height được finalize** → sang height mới, **xóa lock**.
+2. **Thấy polka cho block khác ở một round mới hơn `locked_round`** → **đổi lock** sang block đó.
+
+#### Phản ví dụ: nếu bỏ lock mỗi khi sang round mới
+
+n = 4, f = 1, quorum = 3.
+
+**Round 1:**
+- V0, V1, V2 prevote B → **polka B** → cả ba lock B và precommit B.
+- V0 nhận đủ 3 precommit → **V0 finalize B**.
+- V1, V2 bị drop precommit, chỉ thấy 2 → **timeout**, sang round 2.
+
+**Round 2, nếu bỏ lock:** proposer đề xuất C. V1, V2, V3 không còn lock gì → cả ba prevote C → **polka C** → precommit C → **V1, V2, V3 finalize C**. V0 đã finalize **B**, còn V1, V2, V3 finalize **C** ở cùng height → **mất safety**.
+
+**Round 2, nếu giữ lock:** V1, V2 vẫn lock B, chưa có polka C nào mới hơn round 1 → prevote **NIL**. C tối đa có V3 cộng 1 Byzantine, tức 2 phiếu, nhỏ hơn 3 → **C không bao giờ được finalize** → safety được giữ.
+
+```mermaid
+sequenceDiagram
+    participant V0
+    participant V12 as V1, V2
+    participant V3
+    Note over V0,V3: Round 1
+    V0->>V0: polka B, lock B, precommit B
+    V12->>V12: polka B, lock B, precommit B
+    V0->>V0: nhận đủ 3 precommit → FINALIZE B
+    V12--xV12: precommit bị drop, chỉ thấy 2 → timeout
+    Note over V0,V3: Round 2, proposer đề xuất C
+    alt Bỏ lock khi sang round mới
+        V12->>V3: prevote C
+        V3->>V12: prevote C
+        Note over V0,V3: polka C → V1, V2, V3 finalize C ❌ trong khi V0 đã finalize B
+    else Giữ lock như thiết kế
+        V12->>V3: prevote NIL, vì đang lock B
+        Note over V0,V3: C tối đa 2 phiếu < 3 → không finalize được ✅
+    end
+```
+
+**Vì sao lock phải sống qua nhiều round:** lock tồn tại để trả lời nỗi lo *"có thể đã có node nào đó finalize B rồi, chỉ là tôi không biết"*. Nỗi lo này **không biến mất khi sang round mới**: ở round 2, V1 vẫn không biết V0 đã finalize B. Nó chỉ được bỏ lời hứa khi có bằng chứng an toàn:
+- Height đã finalize.
+- Thấy **polka mới hơn cho block khác**: nếu B đã được finalize thì ít nhất f + 1 honest node đang lock B và sẽ không prevote block khác, nên block khác **không thể** có polka. Vậy thấy polka mới cho block khác nghĩa là B chắc chắn chưa được finalize.
+
+#### Ba mốc round khi quyết định prevote
+
+- **`locked_round`**: round trong **quá khứ** mà mình đã lock B. Không phải round hiện tại.
+- **`r`**: round **hiện tại**.
+- **`r_p`**: round mà mình **thấy polka cho block P**.
+
+| Round | Chuyện xảy ra với V5 | Lock của V5 |
+| --- | --- | --- |
+| 1 | Thấy polka B → lock B. Precommit không đủ → timeout → sang round 2 | B, `locked_round = 1` |
+| 2 | Proposal là C. Đang lock B, chưa thấy polka C → prevote NIL. Prevote của người khác tới chậm → timeout → precommit NIL → sang round 3 | vẫn B |
+| 2, tới trễ | Đang ở round 3 thì prevote cho C của round 2 mới tới. V5 **vẫn lưu và đếm**: đủ 2f + 1 → biết đã có polka C ở round 2 | vẫn B |
+| 3 | Proposal là C. `polka_round(C) = 2 > locked_round = 1` → **được prevote C**; khi thấy polka C ở round 3 thì đổi lock sang C | C, `locked_round = 3` |
+
+Quy tắc gọn để code. Vế `r_p < r` luôn tự đúng, vì polka của round hiện tại cần chính prevote của round hiện tại:
+
+```python
+if locked_block is not None and P != locked_block:
+    if polka_round(P) > locked_round:
+        prevote(P)
+    else:
+        prevote(NIL)
+```
+
+#### Timeout không xóa lock, không xóa vote
+
+- Timeout chỉ kết thúc **lượt thử của round đó** để sang round mới, giúp chain không đứng yên.
+- **Lock** giữ suốt height. **Vote** của mọi round trong height hiện tại được lưu trong `VoteSet` theo `(height, round, phase)`; vote của round cũ tới trễ **vẫn được đếm**. Chỉ xóa khi sang height mới.
+
+#### Hai mốc quorum, nhắc lại cho đúng
+
+1. **2f + 1 PREVOTE cho B ở round r** → được phép **PRECOMMIT B** và lock B. Precommit đi theo **polka mà node thấy**, không theo prevote của chính nó.
+2. **2f + 1 PRECOMMIT cho B ở cùng một round r'** → **finalize B**. r' là **bất kỳ round nào** của height hiện tại, và điều kiện này **không phụ thuộc lock của mình**.
 
 ### Vote rules cần code (section 6.1)
 
@@ -1185,6 +1265,8 @@ flowchart TD
 - [ ] Safety khác liveness thế nào? Cái nào được phép hy sinh khi mạng tệ?
 - [ ] Một round gồm những bước nào? Khi nào vote NIL?
 - [ ] Locking ngăn chặn kịch bản lỗi nào?
+- [ ] Vì sao lock phải giữ qua nhiều round thay vì bỏ khi sang round mới? Khi nào mới được bỏ hoặc đổi lock?
+- [ ] Vì sao code dùng quorum = n − f thay vì 2f + 1? Hai công thức khác nhau khi nào?
 - [ ] Chữ ký số chứng minh 2 điều gì? Vì sao người khác không giả được chữ ký của Alice?
 - [ ] Nếu không ghi nhãn PREVOTE/PRECOMMIT vào phần được ký, kẻ xấu dùng lại chữ ký của V3 thế nào dù không có secret key?
 - [ ] Vì sao phải sort key khi encode?
