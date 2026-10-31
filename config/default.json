@@ -12,6 +12,7 @@
     "delta_ms": 500
   },
   "consensus": {
+    "timeout_delta_ms": 300,
     "timeout_propose_ms": 1000,
     "timeout_prevote_ms": 1000,
     "timeout_precommit_ms": 1000
