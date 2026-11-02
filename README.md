@@ -1,110 +1,184 @@
-# Lab01 – Minimal Layer-1 Blockchain
+# Lab01 – Blockchain Layer-1 tối giản
 
-Blockchain course 2026 – Knowledge Engineering Department.
+Môn Blockchain 2026 – Khoa Công nghệ Tri thức.
 
-A minimal L1 blockchain that reaches **BFT finality** (Prevote/Precommit, `n = 3f + 1`).
-Each node is a separate process (one terminal, its own port) that keeps TCP connections to a
-few neighbors, finds peers with **signed UDP multicast beacons**, and spreads messages by
-**gossip**. Unreliable network conditions (delay, duplication, reordering, drops) come from a
-**deterministic fault injection layer**. Runs on one machine, or on several machines over
-ZeroTier.
+Một blockchain L1 tối giản, đạt **finality kiểu BFT** (Prevote/Precommit, `n = 3f + 1`).
+Mỗi node là một process riêng (một terminal, một cổng riêng), giữ kết nối TCP tới vài node
+hàng xóm, tìm peer bằng **UDP multicast beacon có chữ ký**, và lan message bằng **gossip**.
+Mạng không tin cậy (trễ, trùng, đảo thứ tự, mất gói) được tạo bởi **lớp fault injection tất
+định**. Chạy trên một máy, hoặc nhiều máy qua ZeroTier.
 
-## Team
+## Nhóm
 
-| Student ID | Name | GitHub | Main area |
+| MSSV | Họ tên | GitHub | Phần chính |
 |---|---|---|---|
 | ID1 | | | |
 | ID2 | | | |
 | ID3 | | | |
 | ID4 | | | |
 
-## Documentation
+## Tài liệu
 
-- [docs/CONCEPT_GUIDE.md](docs/CONCEPT_GUIDE.md) – concepts behind the project (Vietnamese)
-- [docs/TEAM_PLAN.md](docs/TEAM_PLAN.md) – design, roles, interfaces, timeline
+- [docs/CONCEPT_GUIDE.md](docs/CONCEPT_GUIDE.md) – các khái niệm dùng trong dự án
+- [docs/TEAM_PLAN.md](docs/TEAM_PLAN.md) – thiết kế, phân vai, interface, lịch
+- [docs/DEVNET_GAP_ANALYSIS.md](docs/DEVNET_GAP_ANALYSIS.md) – kết quả demo trên devnet, nhóm còn thiếu gì
+- [docs/DEVNET_TO_PROJECT.md](docs/DEVNET_TO_PROJECT.md) – cách bỏ devnet, chạy 100% bằng code của nhóm
 
-## Project structure
+## Cấu trúc thư mục
 
 ```
-src/l1sim/      node source (crypto, network, discovery, consensus, execution)
-tests/unit/     unit tests: signatures/domains, state rules, vote counting, block validation
-tests/e2e/      end-to-end scenarios T1–T8
-config/         scenario configs (seed, validators, network params)
-logs/           run output (git-ignored)
-scripts/        dev helpers: multicast check, determinism check, packaging (not submitted)
-docs/           design notes, diagrams, report sources
+src/l1sim/      mã nguồn node (crypto, network, discovery, consensus, execution)
+tests/unit/     unit test: chữ ký/domain, luật state, đếm vote, kiểm tra block
+tests/e2e/      kịch bản end-to-end T1–T8
+config/         cấu hình scenario (seed, validator, tham số mạng)
+devnet/         chạy thử tạm thời: mọi node trong 1 process + dashboard web
+logs/           output khi chạy (git bỏ qua)
+scripts/        công cụ phụ: thử multicast, kiểm tra determinism, đóng gói (không nộp)
+docs/           ghi chú thiết kế, sơ đồ, nguồn report
 ```
 
-## Setup
+## Cài đặt
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 make install
 ```
 
-## Run
+## Devnet: test chain ngay hôm nay (tạm thời)
 
-One node per terminal (WIP):
+`devnet/` chạy mọi node trong **một process**, nối nhau bằng TCP thật, có dashboard web.
+Nó dùng code thật của nhóm (network, consensus, execution, config, logger, client), chỉ đứng
+thay những phần chưa viết (`node.py`, `run_node.py`, `launch_local.py`, `faults.py`). Cách bỏ
+devnet: xem [docs/DEVNET_TO_PROJECT.md](docs/DEVNET_TO_PROJECT.md).
+
+### 1. Demo nhanh (4 node, tx ngẫu nhiên)
+
+```bash
+python devnet/run.py
+```
+
+Mở http://localhost:8080. Block được cố tình làm chậm (`--block-ms 1000`) để xem từng bước;
+dùng `--block-ms 0` để chạy hết tốc độ. Tuỳ chọn khác: `--nodes`, `--port`, `--propose-ms`,
+`--vote-ms`, `--delta-ms`.
+
+### 2. Chạy scenario của nhóm (10 validator trong `config/genesis.json`)
+
+```bash
+python devnet/run.py --scenario config/t1_normal.json              # có dashboard
+python devnet/run.py --scenario config/t1_normal.json --headless   # chạy tới max_height, in verdict
+```
+
+Chế độ headless thoát với mã 0 khi verdict pass (mọi node cùng hash từng block, cùng state
+hash, đạt `max_height`). Output:
+
+| Đường dẫn | Nội dung |
+|---|---|
+| `logs/events/<scenario>/V*.jsonl` | event log của từng node (`EventLogger`) |
+| `logs/results/<scenario>/V*.json` | block, state, state hash của từng node (`ResultWriter`) |
+| `logs/results/<scenario>/verdict.json` | tóm tắt pass/fail |
+
+Thử T8 bằng tay: chạy headless 2 lần rồi so sánh.
+
+```bash
+python devnet/run.py --scenario config/t1_normal.json --headless && cp -r logs/results /tmp/r1
+python devnet/run.py --scenario config/t1_normal.json --headless && diff -r /tmp/r1 logs/results && echo T8 OK
+```
+
+### 3. Thử gì trên dashboard
+
+| Thao tác | Kết quả mong đợi |
+|---|---|
+| **Gửi tx** ngẫu nhiên, hoặc form **tx của người dùng** (user, key, value, gửi qua node, nonce, ký bằng) | tx vào block kế tiếp; bảng **state của node** hiện giá trị mới |
+| Sai nonce / ký bằng user khác | bị từ chối: `bad_nonce` / `bad_signature` |
+| **Replay** tx cuối | bị từ chối, áp dụng tối đa 1 lần (T4) |
+| **Tắt** tối đa f node (10 node thì f = 3) | chain vẫn chạy; tắt trúng proposer thì timeout sang round mới (T6) |
+| Tắt f + 1 node | chain dừng, không finalize gì mâu thuẫn (safety) |
+| Thanh **drop / delay** | round chậm hơn, chain vẫn giống nhau |
+| **Bật lại** node đã tắt | thiếu sót đã biết: chưa có block sync nên node đó bị tụt lại |
+
+Làm tương tự bằng `curl` (dashboard phải đang chạy):
+
+```bash
+curl -X POST "http://localhost:8080/api/tx/custom?user=Alice&key=Alice/name&value=alice&via=V2"
+curl "http://localhost:8080/api/kv?node=V2"
+curl -X POST "http://localhost:8080/api/node/V0/stop"
+curl -X POST "http://localhost:8080/api/fault?drop=0.2&delay=200"
+```
+
+Không có `--scenario` thì user là `u0`..`u4`, node là `V0`..`V3`. Key phải bắt đầu bằng
+`<user>/`.
+
+### 4. Test tự động
+
+```bash
+PYTHONPATH=src pytest tests/unit tests/integration
+```
+
+`tests/integration/test_devnet.py` chạy T1 trên `config/t1_normal.json` từ đầu tới cuối.
+
+## Chạy (mục tiêu, không cần devnet)
+
+Mỗi node một terminal (đang làm, cần `node.py` và `run_node.py`):
 
 ```bash
 python -m l1sim.run_node --id V0 --port 9000 --scenario config/t1_normal.json
 python -m l1sim.run_node --id V1 --port 9001 --scenario config/t1_normal.json
-# ... up to V9 on port 9009
+# ... tới V9 ở cổng 9009
 ```
 
-On several machines over ZeroTier, add:
+Chạy nhiều máy qua ZeroTier, thêm:
 
 ```bash
 --listen 0.0.0.0:<port> --advertise <zerotier-ip>:<port> --mcast-iface <zerotier-ip>
 ```
 
-## Network check
+## Kiểm tra mạng
 
-On one machine:
+Trên một máy:
 
 ```bash
 python scripts/mcast_test.py --self-test 4
 ```
 
-On two machines over ZeroTier, run on both:
+Trên hai máy qua ZeroTier, chạy ở cả hai:
 
 ```bash
-python scripts/mcast_test.py --id <name> --iface <own zerotier-ip> --duration 60
+python scripts/mcast_test.py --id <tên> --iface <zerotier-ip của máy đó> --duration 60
 ```
 
-It prints the beacons heard and round-trip times.
+Lệnh in ra các beacon nghe được và thời gian khứ hồi (round-trip).
 
-## Tests
+## Test
 
 ```bash
-make test          # all tests (single entry point)
-make unit          # unit tests only
+make test          # mọi test (một lệnh duy nhất)
+make unit          # chỉ unit test
 make e2e           # T1–T8
-make determinism   # T8: same seed twice -> byte-identical logs + state hash
+make determinism   # T8: cùng seed chạy 2 lần -> log + state hash giống từng byte
 ```
 
-| Test | Scenario | Required outcome |
+| Test | Kịch bản | Kết quả bắt buộc |
 |---|---|---|
-| T1 | Normal run, no faults | All correct nodes finalize same chain & state hash |
-| T2 | Duplicate/reordered messages | No double-counted votes, no conflicting finalization |
-| T3 | Invalid signature / wrong domain | Message rejected, reason logged |
-| T4 | Replayed/duplicate transaction | Applied at most once |
-| T5 | Drop/delay before synchrony | Safety holds |
-| T6 | Proposer silent/crashed | Round timeout, chain continues |
-| T7 | Up to f Byzantine equivocate | No conflicting finalization |
-| T8 | Same seed rerun twice | `logs/results/` is byte-identical; event logs may differ only in timestamps and event order |
-| D1 | Peer discovery: nodes start in random order, no known addresses | Every node gets enough neighbors, graph connected, T1 passes |
-| D2 | A neighbor dies | Node replaces it, chain continues |
-| D3 | A node restarts behind | Block sync catches up, same chain |
+| T1 | Chạy bình thường, không lỗi mạng | Mọi node đúng finalize cùng chain và cùng state hash |
+| T2 | Message bị trùng/đảo thứ tự | Không đếm vote 2 lần, không finalize mâu thuẫn |
+| T3 | Chữ ký sai / sai domain | Message bị từ chối, log lý do |
+| T4 | Tx bị replay/trùng | Áp dụng tối đa 1 lần |
+| T5 | Mất/trễ gói trước khi mạng đồng bộ | Vẫn giữ safety |
+| T6 | Proposer im lặng/sập | Timeout round, chain chạy tiếp |
+| T7 | Tối đa f node Byzantine equivocate | Không finalize mâu thuẫn |
+| T8 | Cùng seed chạy lại 2 lần | `logs/results/` giống từng byte; event log chỉ được khác timestamp và thứ tự event |
+| D1 | Tìm peer: node bật theo thứ tự ngẫu nhiên, không biết trước địa chỉ | Node nào cũng đủ hàng xóm, đồ thị liên thông, T1 pass |
+| D2 | Một hàng xóm chết | Node thay hàng xóm khác, chain chạy tiếp |
+| D3 | Một node khởi động lại bị tụt | Block sync đuổi kịp, cùng chain |
 
-### For graders
+### Cho người chấm
 
 ```bash
 pip install -r tests/requirements.txt
-python tests/run_tests.py   # (WIP, added later)
+python tests/run_tests.py   # (đang làm, thêm sau)
 ```
 
-## Workflow
+## Quy trình làm việc
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). `main` is protected: all changes go through a Pull Request
-with 1 approval and green CI.
+Xem [CONTRIBUTING.md](CONTRIBUTING.md). Nhánh `main` được bảo vệ: mọi thay đổi đi qua Pull
+Request, cần 1 approve và CI xanh.

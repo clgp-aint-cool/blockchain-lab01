@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab01 – Toàn cảnh blockchain L1 mini</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e2e2e0;
+    --accent: #3b6fd8; --ok: #2f9e5b; --warn: #d08a1c; --bad: #d4483b; --byz: #b23a8e; --nil: #8a8a90;
+    --soft-accent: #e8eefb; --soft-ok: #e6f4ec; --soft-bad: #fbe9e7; --soft-warn: #fbf1df;
+    --code: #f1f1ef;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --panel: #1d1d20; --ink: #ececee; --muted: #9a9aa2; --line: #2e2e33;
+      --accent: #6d97f0; --ok: #4cc07c; --warn: #e6a53d; --bad: #ef6a5c; --byz: #d76bb6; --nil: #8a8a93;
+      --soft-accent: #22304d; --soft-ok: #1d3527; --soft-bad: #3d2220; --soft-warn: #3a2f1b;
+      --code: #26262a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.02em; }
+  h2 { font-size: 22px; margin: 56px 0 6px; letter-spacing: -0.01em; }
+  h3 { font-size: 16px; margin: 0 0 8px; }
+  p.lead { color: var(--muted); margin: 0 0 18px; max-width: 820px; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code); padding: 10px 12px; border-radius: 8px; margin: 8px 0 0; white-space: pre-wrap; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .grid { display: grid; gap: 14px; }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  .g4 { grid-template-columns: repeat(4, 1fr); }
+  .g2 { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 860px) { .g3, .g4, .g2 { grid-template-columns: 1fr; } }
+  .goal { border-left: 4px solid var(--accent); background: var(--soft-accent); padding: 12px 16px; border-radius: 8px; margin: 14px 0 20px; }
+  .goal em { color: var(--muted); font-size: 13px; }
+  .stat { font-size: 28px; font-weight: 700; }
+  .stat small { font-size: 13px; color: var(--muted); font-weight: 400; display: block; }
+  .pill { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; }
+
+  /* layers */
+  .layers { display: flex; flex-direction: column; gap: 6px; }
+  .layer { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); }
+  .layer b { font-size: 14px; } .layer span { color: var(--muted); font-size: 13px; }
+  .layer .who { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--soft-accent); color: var(--accent); white-space: nowrap; }
+  .arrow-note { font-size: 12.5px; color: var(--muted); text-align: center; }
+
+  /* pipeline */
+  .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0; }
+  .flow .st { flex: 1 1 140px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; position: relative; margin-right: 22px; }
+  .flow .st:last-child { margin-right: 0; }
+  .flow .st:not(:last-child)::after { content: "→"; position: absolute; right: -18px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 16px; }
+  .flow .st b { display: block; font-size: 13.5px; } .flow .st span { font-size: 12.5px; color: var(--muted); }
+  .flow .st.hl { border-color: var(--accent); background: var(--soft-accent); }
+
+  /* simulator */
+  .sim { display: grid; grid-template-columns: 1.15fr 1fr; gap: 14px; }
+  @media (max-width: 960px) { .sim { grid-template-columns: 1fr; } }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+  .tabs button, .ctrl button { font: inherit; font-size: 13.5px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+  .tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .ctrl { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .ctrl button:disabled { opacity: .4; cursor: default; }
+  .ctrl .count { color: var(--muted); font-size: 13px; margin-left: auto; }
+  .phases { display: flex; gap: 4px; margin-bottom: 10px; }
+  .phases div { flex: 1; text-align: center; font-size: 12px; padding: 5px 0; border-radius: 6px; background: var(--code); color: var(--muted); }
+  .phases div.on { background: var(--accent); color: #fff; font-weight: 600; }
+  svg#net { width: 100%; height: auto; display: block; }
+  .step-title { font-size: 17px; font-weight: 700; margin: 0 0 6px; }
+  .step-desc { font-size: 14.5px; }
+  .step-desc ul { padding-left: 18px; margin: 6px 0; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 13.5px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; }
+  .bar { margin: 6px 0; }
+  .bar .lbl { font-size: 12.5px; display: flex; justify-content: space-between; }
+  .bar .track { position: relative; height: 12px; background: var(--code); border-radius: 6px; overflow: hidden; margin-top: 2px; }
+  .bar .fill { height: 100%; border-radius: 6px; transition: width .5s; }
+  .bar .q { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); left: 70%; }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .chip { font-size: 12px; font-family: ui-monospace, Menlo, monospace; padding: 2px 7px; border-radius: 6px; background: var(--soft-ok); color: var(--ok); border: 1px solid transparent; }
+  .chip.new { border-color: var(--ok); font-weight: 700; }
+  .logbox { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: var(--code); border-radius: 8px; padding: 8px 10px; max-height: 120px; overflow: auto; white-space: pre-wrap; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+  .sep { height: 1px; background: var(--line); margin: 12px 0; }
+  .toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 0; }
+  .toc a { font-size: 13px; color: var(--accent); text-decoration: none; border: 1px solid var(--line); background: var(--panel); padding: 3px 10px; border-radius: 99px; }
+  footer { color: var(--muted); font-size: 12.5px; margin-top: 60px; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Lab01: Blockchain Layer 1 mini</h1>
+<p class="lead">Toàn cảnh đề tài trên một trang: hệ thống gồm những gì, một block đi từ tx tới finalize ra sao, và vì sao mạng chập chờn hay node Byzantine không phá được nó.</p>
+
+<div class="goal">
+  <b>Đề bài:</b> Thiết kế và cài đặt một blockchain Layer 1 tối giản, đạt <b>finality đáng tin cậy</b> trên một <b>mạng giả lập không ổn định</b>.
+  Mọi node trung thực phải <b>hội tụ về cùng một chuỗi block đã finalize</b>, bất kể message bị trễ, bị trùng hay tạm thời bị mất.<br>
+  <em>“Design and implement a minimal Layer 1 blockchain that achieves reliable finality under a simulated unreliable network.”</em>
+</div>
+
+<nav class="toc">
+  <a href="#promise">1. Lời hứa</a><a href="#big">2. Bức tranh lớn</a><a href="#node">3. Bên trong một node</a>
+  <a href="#sim">4. Mô phỏng luồng</a><a href="#round">5. Vòng consensus</a><a href="#faults">6. Mạng không ổn định</a>
+  <a href="#quorum">7. Byzantine &amp; quorum</a><a href="#det">8. Determinism</a><a href="#tests">9. Test T1–T8</a>
+</nav>
+
+<!-- 1 -->
+<h2 id="promise">1. Hệ thống phải giữ lời hứa gì</h2>
+<p class="sub">Ba con số cố định trong <code>genesis.json</code> và ba thuộc tính cần chứng minh.</p>
+<div class="grid g3">
+  <div class="card"><div class="stat">n = 10<small>validator V0…V9, cố định suốt lần chạy</small></div></div>
+  <div class="card"><div class="stat">f = 3<small>tối đa 3 node Byzantine (n = 3f + 1)</small></div></div>
+  <div class="card"><div class="stat">quorum = 7<small>cần ≥ 2f + 1 vote cùng một block</small></div></div>
+</div>
+<div class="grid g3" style="margin-top:14px">
+  <div class="card"><h3 class="ok">Safety, luôn luôn</h3>Không bao giờ có 2 block khác nhau được finalize ở cùng một height, kể cả khi mạng tệ nhất.</div>
+  <div class="card"><h3 class="warn">Liveness, sau GST</h3>Khi mạng đã ổn định và có proposer trung thực, chain phải tiếp tục finalize block mới. Trước đó được phép đứng yên.</div>
+  <div class="card"><h3 style="color:var(--accent)">Reproducibility (T8)</h3>Chạy lại cùng scenario thì <code>logs/results/</code> giống hệt từng byte, trên một máy hay nhiều máy.</div>
+</div>
+
+<!-- 2 -->
+<h2 id="big">2. Bức tranh lớn</h2>
+<p class="sub">Không có server trung tâm. Mỗi validator là một process Python riêng, nói chuyện TCP với vài neighbor, message lan ra cả mạng bằng gossip.</p>
+<div class="grid g2">
+  <div class="card">
+    <svg viewBox="0 0 460 330" style="width:100%;height:auto" id="bigsvg"></svg>
+    <div class="legend"><span><i style="background:var(--accent)"></i>validator (node)</span><span><i style="background:var(--warn)"></i>participant gửi tx</span><span>— kết nối TCP tới neighbor (mỗi node 4)</span></div>
+  </div>
+  <div class="card">
+    <h3>Các thành phần</h3>
+    <table>
+      <tr><th>Thành phần</th><th>Vai trò</th></tr>
+      <tr><td><b>Participant</b><br><span class="pill">Alice, Bob</span></td><td>Ký tx để sửa key của chính mình, ví dụ <code>Alice/message</code></td></tr>
+      <tr><td><b>Validator</b><br><span class="pill">V0…V9</span></td><td>Giữ ledger và state, đề xuất block khi tới lượt, prevote, precommit, finalize</td></tr>
+      <tr><td><b>genesis.json</b></td><td><code>chain_id</code>, <code>seed</code>, danh sách validator id và public key</td></tr>
+      <tr><td><b>Discovery</b></td><td>Multicast beacon <code>ANNOUNCE</code> để tìm địa chỉ, rồi <code>HELLO</code> có chữ ký để xác thực</td></tr>
+      <tr><td><b>Gossip</b></td><td>Nhận message mới thì chuyển tiếp cho mọi neighbor, đã thấy thì bỏ</td></tr>
+      <tr><td><b>Fault injection</b></td><td>Tự gây delay, drop, duplicate trên từng đường nối, quyết định bằng hash</td></tr>
+      <tr><td><b>Scenario</b></td><td>Mô tả tx, lỗi mạng, node Byzantine cho từng test T1–T8</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- 3 -->
+<h2 id="node">3. Bên trong một node</h2>
+<p class="sub">Message gửi đi đi từ trên xuống, message nhận được đi từ dưới lên. Chữ cái bên phải là người phụ trách trong Team Plan.</p>
+<div class="grid g2">
+  <div class="layers">
+    <div class="layer"><div><b>node.py</b><br><span>nhận message, route theo loại: TX, HEADER, BODY, VOTE, BLOCKS</span></div><div class="who">A</div></div>
+    <div class="layer"><div><b>consensus</b> · <b>execution</b> · <b>block_sync</b><br><span>vote_set, engine, lock, timeout · state, mempool, validate_block · bắt kịp chain</span></div><div class="who">D · B · D</div></div>
+    <div class="layer"><div><b>gossip</b> · <b>discovery</b><br><span>flooding, dedup theo message id · beacon, HELLO, chọn neighbor</span></div><div class="who">C</div></div>
+    <div class="layer"><div><b>peer_limits</b> · <b>faults</b><br><span>rate limit, block peer · delay / drop / duplicate theo hash</span></div><div class="who">B</div></div>
+    <div class="layer"><div><b>tcp_transport</b><br><span>asyncio, framing 4 bytes độ dài, reconnect</span></div><div class="who">C</div></div>
+    <div class="layer" style="background:var(--code)"><div><b>Nền tảng dùng chung</b><br><span>encoding · crypto (Ed25519, SHA-256) · types · config · logger</span></div><div class="who">A</div></div>
+  </div>
+  <div class="card">
+    <h3>Mỗi node giữ gì</h3>
+    <dl class="kv">
+      <dt>Ledger</dt><dd>Các block đã finalize. Chỉ append, không bao giờ sửa.</dd>
+      <dt>State</dt><dd><code>dict[str, str]</code>, ví dụ <code>{"Alice/message": "hello"}</code></dd>
+      <dt>Nonce</dt><dd>Số tx kế tiếp mong đợi của từng sender, chặn replay</dd>
+      <dt>Mempool</dt><dd>Tx hợp lệ đang chờ vào block</dd>
+      <dt>View</dt><dd>Block đang chờ vote, vote đã nhận, <code>locked_block</code>, <code>locked_round</code></dd>
+      <dt>Secret key</dt><dd>Để ký header, vote, HELLO</dd>
+      <dt>Neighbor</dt><dd>4 peer xếp đầu theo <code>sha256(seed | self | peer)</code></dd>
+    </dl>
+    <div class="sep"></div>
+    <h3>Một tx đến được kiểm tra thế nào</h3>
+    <div class="flow">
+      <div class="st"><b>Chữ ký</b><span>đúng sender ký <code>TX:lab01</code>?</span></div>
+      <div class="st"><b>Ownership</b><span>key bắt đầu bằng <code>sender/</code>?</span></div>
+      <div class="st"><b>Nonce</b><span>đúng số kế tiếp?</span></div>
+      <div class="st hl"><b>Apply</b><span><code>state[key] = value</code></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- 4 -->
+<h2 id="sim">4. Mô phỏng luồng hoạt động</h2>
+<p class="sub">Chọn một tình huống, rồi bấm <b>Tiếp</b> (hoặc phím →) để đi từng bước. Bảng bên phải là góc nhìn của V0. Để dễ nhìn, message được vẽ như gửi thẳng; thực tế chúng đi qua neighbor bằng gossip.</p>
+<div class="tabs" id="tabs"></div>
+<div class="sim">
+  <div class="card">
+    <div class="phases" id="phases"></div>
+    <svg id="net" viewBox="0 0 600 500"></svg>
+    <div class="legend">
+      <span><i style="background:var(--accent)"></i>validator</span>
+      <span><i style="background:var(--warn)"></i>proposer</span>
+      <span><i style="background:var(--byz)"></i>Byzantine</span>
+      <span><i style="background:var(--nil)"></i>im lặng</span>
+      <span>🔒 đã lock</span>
+    </div>
+    <div class="ctrl">
+      <button id="prev">← Lùi</button>
+      <button id="next">Tiếp →</button>
+      <button id="replay">Phát lại bước</button>
+      <span class="count" id="count"></span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="step-title" id="stitle"></div>
+    <div class="step-desc" id="sdesc"></div>
+    <pre id="scode"></pre>
+    <div class="sep"></div>
+    <dl class="kv" id="sview"></dl>
+    <div id="sbars"></div>
+    <div class="sep"></div>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:4px">Ledger của V0</div>
+    <div class="chips" id="sledger"></div>
+    <div style="font-size:12.5px;color:var(--muted);margin:10px 0 4px">Event log</div>
+    <div class="logbox" id="slog"></div>
+  </div>
+</div>
+
+<!-- 5 -->
+<h2 id="round">5. Một vòng consensus (kiểu Tendermint)</h2>
+<p class="sub">Mỗi height có thể cần nhiều round. Mọi nhánh “không đủ vote” đều dẫn tới timeout và round mới, không bao giờ tới finalize.</p>
+<div class="card">
+  <div class="flow">
+    <div class="st"><b>Chọn proposer</b><span><code>validators[(h + r) % 10]</code>, ai cũng tự tính</span></div>
+    <div class="st"><b>Propose</b><span>proposer ký HEADER, gửi header trước, body sau</span></div>
+    <div class="st"><b>Prevote</b><span>block hợp lệ → PREVOTE B, không thì NIL</span></div>
+    <div class="st"><b>Polka + Lock</b><span>≥ 7 PREVOTE B → lock B, PRECOMMIT B</span></div>
+    <div class="st hl"><b>Finalize</b><span>≥ 7 PRECOMMIT B → ghi ledger, sang h + 1</span></div>
+  </div>
+  <div class="sep"></div>
+  <div class="grid g3">
+    <div><h3>Timeout</h3>Thiếu proposal, thiếu polka hay thiếu precommit thì hết giờ, sang round r + 1 với proposer mới. Timeout tăng dần <code>base + r × delta</code> để sau GST chắc chắn có round đủ dài.</div>
+    <div><h3>Locking</h3>Đã lock B thì các round sau chỉ prevote B, trừ khi thấy polka cho block khác ở round mới hơn. Nhờ vậy block có thể đã finalize ở đâu đó sẽ không bị thay.</div>
+    <div><h3>Vote rules</h3>Mỗi (h, r, phase) chỉ ký 1 vote. Mỗi validator chỉ được đếm 1 vote. Vote khác block từ cùng validator → log <code>equivocation_detected</code>, không đếm.</div>
+  </div>
+</div>
+
+<!-- 6 -->
+<h2 id="faults">6. Mạng không ổn định và cách chịu đựng</h2>
+<p class="sub">Mỗi node có một lớp fault injection ngay trước TCP. Số phận của mỗi message được tính bằng <code>sha256(seed | src | dst | message_id)</code>, không bằng random tuần tự, nên chạy lại vẫn y hệt.</p>
+<div class="grid g4">
+  <div class="card"><h3>Delay</h3>Message tới trễ.<br><span class="ok">→ timeout, sang round mới</span></div>
+  <div class="card"><h3>Drop</h3>Message mất hẳn.<br><span class="ok">→ gossip qua neighbor khác, hoặc chờ round sau</span></div>
+  <div class="card"><h3>Duplicate</h3>Một message tới 2 lần.<br><span class="ok">→ dedup theo message id (network) và theo validator (consensus)</span></div>
+  <div class="card"><h3>Reorder</h3>Tới sai thứ tự.<br><span class="ok">→ buffer message của height/round chưa tới</span></div>
+</div>
+<div class="grid g2" style="margin-top:14px">
+  <div class="card">
+    <h3>Partial synchrony: GST tính theo height</h3>
+    <svg viewBox="0 0 460 120" style="width:100%;height:auto">
+      <rect x="10" y="30" width="200" height="50" rx="8" fill="var(--soft-bad)"/>
+      <rect x="250" y="30" width="200" height="50" rx="8" fill="var(--soft-ok)"/>
+      <line x1="230" y1="15" x2="230" y2="95" stroke="var(--ink)" stroke-dasharray="4 3"/>
+      <text x="230" y="110" text-anchor="middle" font-size="12" fill="var(--ink)">gst_height</text>
+      <text x="110" y="52" text-anchor="middle" font-size="13" font-weight="700" fill="var(--bad)">height &lt; gst_height</text>
+      <text x="110" y="70" text-anchor="middle" font-size="12" fill="var(--ink)">drop nặng, delay dài · được đứng yên</text>
+      <text x="350" y="52" text-anchor="middle" font-size="13" font-weight="700" fill="var(--ok)">height ≥ gst_height</text>
+      <text x="350" y="70" text-anchor="middle" font-size="12" fill="var(--ink)">mọi message ≤ ∆ · phải tiến lên</text>
+    </svg>
+    Safety phải giữ ở cả hai phía. Thời gian (timeout) chỉ dùng để tiến lên, không bao giờ dùng để quyết định cái gì là đúng.
+  </div>
+  <div class="card">
+    <h3>Delay hai cực</h3>
+    <svg viewBox="0 0 460 90" style="width:100%;height:auto">
+      <rect x="10" y="25" width="60" height="30" rx="6" fill="var(--soft-ok)"/>
+      <rect x="70" y="25" width="250" height="30" fill="none" stroke="var(--muted)" stroke-dasharray="5 4"/>
+      <rect x="320" y="25" width="130" height="30" rx="6" fill="var(--soft-warn)"/>
+      <line x1="195" y1="15" x2="195" y2="65" stroke="var(--bad)" stroke-width="2"/>
+      <text x="195" y="12" text-anchor="middle" font-size="11" fill="var(--bad)">timeout 1000 ms</text>
+      <text x="40" y="45" text-anchor="middle" font-size="11" fill="var(--ink)">≤ 100</text>
+      <text x="195" y="80" text-anchor="middle" font-size="11" fill="var(--muted)">vùng cấm: “vừa kịp, vừa trễ”</text>
+      <text x="385" y="45" text-anchor="middle" font-size="11" fill="var(--ink)">≥ 2000 ms</text>
+    </svg>
+    Delay chỉ chọn ở hai cực: chắc chắn kịp hoặc chắc chắn trễ. Nhờ vậy CPU nhanh hay chậm cũng không đổi kết quả.
+  </div>
+</div>
+
+<!-- 7 -->
+<h2 id="quorum">7. Byzantine và vì sao quorum 7 an toàn</h2>
+<p class="sub">Byzantine node có thể im lặng, gửi trùng, vote hai mang, đề xuất block sai, replay. Nó không giả được chữ ký của node khác.</p>
+<div class="grid g2">
+  <div class="card">
+    <h3>Hai quorum luôn chồng nhau ít nhất 4 node</h3>
+    <svg viewBox="0 0 460 170" style="width:100%;height:auto" id="qsvg"></svg>
+    <div style="font-size:14px">7 + 7 − 10 = <b>4</b> node phải vote cả A lẫn B. Tối đa 3 node xấu, nên ít nhất <b>1 node trung thực</b> đã vote hai block cùng round, điều mà node trung thực không bao giờ làm. Vậy A và B không thể cùng đạt quorum.</div>
+  </div>
+  <div class="card">
+    <h3>Byzantine bị chặn ở đâu</h3>
+    <table>
+      <tr><th>Hành vi</th><th>Bị chặn bởi</th></tr>
+      <tr><td>Mạo danh validator khác</td><td>Chữ ký Ed25519, HELLO tra public key trong genesis</td></tr>
+      <tr><td>Dùng chữ ký PREVOTE làm PRECOMMIT</td><td>Domain separation <code>VOTE:lab01</code> + phase trong phần được ký</td></tr>
+      <tr><td>Gửi lại tx cũ</td><td>Nonce</td></tr>
+      <tr><td>Khai gian <code>state_hash</code></td><td>Mỗi node tự apply lên bản sao rồi so</td></tr>
+      <tr><td>Vote hai mang</td><td>Giữ vote đầu, log equivocation, quorum 7 &gt; 3 + 3</td></tr>
+      <tr><td>Im lặng khi làm proposer</td><td>Timeout, round mới, proposer mới</td></tr>
+      <tr><td>Spam message</td><td>Rate limit, block peer tạm thời</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- 8 -->
+<h2 id="det">8. Determinism: chạy lại ra đúng kết quả</h2>
+<div class="grid g2">
+  <div class="card">
+    <h3>Hai loại output</h3>
+    <table>
+      <tr><th>Output</th><th>Timestamp</th><th>Yêu cầu</th></tr>
+      <tr><td><code>logs/&lt;scenario&gt;/&lt;node&gt;.jsonl</code><br>event log</td><td>Có</td><td>Được khác nhau, để debug và làm bằng chứng</td></tr>
+      <tr><td><code>logs/results/&lt;scenario&gt;/&lt;node&gt;.json</code><br>results</td><td>Không</td><td><b>Byte-identical</b> giữa mọi lần chạy, mọi máy</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>Thay kẻ phá determinism</h3>
+    <table>
+      <tr><td><code>random.random()</code> cho fault</td><td>→ <code>sha256(seed, src, dst, msg_id)</code></td></tr>
+      <tr><td><code>time.time()</code> cho GST</td><td>→ <code>gst_height</code></td></tr>
+      <tr><td>Key sinh ngẫu nhiên</td><td>→ <code>keypair_from_seed(seed, node_id)</code></td></tr>
+      <tr><td>Duyệt <code>set</code>/<code>dict</code></td><td>→ <code>sorted(...)</code></td></tr>
+      <tr><td><code>json.dumps</code> tự do</td><td>→ một hàm <code>encode()</code> chung, <code>sort_keys</code></td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- 9 -->
+<h2 id="tests">9. Test chứng minh điều gì</h2>
+<div class="card">
+  <table>
+    <tr><th>Test</th><th>Tình huống</th><th>Phải thấy</th><th>Ai</th></tr>
+    <tr><td><b>T1</b></td><td>10 node, không lỗi, ~20 tx, tới height 5</td><td>Mọi node cùng block hash ở mỗi height, cùng final state_hash</td><td>A</td></tr>
+    <tr><td><b>T2</b></td><td><code>dup_rate = 0.3</code>, delay hai cực gây reorder</td><td>Không vote nào bị đếm 2 lần, không finalize xung đột</td><td>C</td></tr>
+    <tr><td><b>T3</b></td><td>Chữ ký sai, vote ký bằng domain TX, HELLO mạo danh</td><td>Bị reject, đếm đúng <code>bad_signature</code> / <code>wrong_domain</code> / <code>unknown_peer</code></td><td>A</td></tr>
+    <tr><td><b>T4</b></td><td>Gửi lại cùng một tx nhiều lần</td><td>Tx chỉ xuất hiện 1 lần trong chain</td><td>B</td></tr>
+    <tr><td><b>T5</b></td><td><code>drop_rate = 0.4</code> trước <code>gst_height</code></td><td>Không có 2 hash ở cùng height, sau GST chain chạy tiếp</td><td>B</td></tr>
+    <tr><td><b>T6</b></td><td>Proposer height 2 round 0 im lặng</td><td>Finalize ở round 1 với proposer khác</td><td>D</td></tr>
+    <tr><td><b>T7</b></td><td>3 node equivocate: vote 2 block, propose 2 block</td><td>Không finalize xung đột, có danh sách equivocation</td><td>D</td></tr>
+    <tr><td><b>T8</b></td><td>Mọi scenario chạy 2 lần</td><td><code>logs/results/</code> byte-identical</td><td>B</td></tr>
+  </table>
+</div>
+
+<footer>Tổng hợp từ <code>docs/CONCEPT_GUIDE.md</code>, <code>docs/TEAM_PLAN.md</code> và đề <code>docs/Lab01.pdf</code>. Mở trực tiếp bằng trình duyệt, không cần cài gì.</footer>
+</main>
+
+<script>
+(() => {
+const NS = "http://www.w3.org/2000/svg";
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const el = (tag, attrs = {}, parent) => {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+};
+const N = 10, IDS = [...Array(N)].map((_, i) => "V" + i);
+const neighbors = i => [(i + 1) % N, (i + 3) % N];   // i±1, i±3 → mỗi node 4 neighbor
+
+/* ---------- Big picture ---------- */
+(function big() {
+  const s = document.getElementById("bigsvg");
+  const cx = 250, cy = 170, r = 125;
+  const p = i => { const a = (-90 + i * 36) * Math.PI / 180; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; };
+  for (let i = 0; i < N; i++) for (const j of neighbors(i)) {
+    const [x1, y1] = p(i), [x2, y2] = p(j);
+    el("line", { x1, y1, x2, y2, stroke: "var(--line)", "stroke-width": 1.6 }, s);
+  }
+  for (let i = 0; i < N; i++) {
+    const [x, y] = p(i);
+    el("circle", { cx: x, cy: y, r: 19, fill: "var(--accent)" }, s);
+    const t = el("text", { x, y: y + 4.5, "text-anchor": "middle", "font-size": 13, "font-weight": 700, fill: "#fff" }, s); t.textContent = "V" + i;
+  }
+  [["Alice", 40, 40], ["Bob", 40, 300]].forEach(([n, x, y]) => {
+    el("rect", { x: x - 30, y: y - 14, width: 60, height: 28, rx: 14, fill: "var(--warn)" }, s);
+    const t = el("text", { x, y: y + 4.5, "text-anchor": "middle", "font-size": 12.5, "font-weight": 700, fill: "#fff" }, s); t.textContent = n;
+  });
+  const [ax, ay] = p(9), [bx, by] = p(6);
+  el("line", { x1: 70, y1: 44, x2: ax - 16, y2: ay + 4, stroke: "var(--warn)", "stroke-dasharray": "4 3" }, s);
+  el("line", { x1: 70, y1: 296, x2: bx - 16, y2: by, stroke: "var(--warn)", "stroke-dasharray": "4 3" }, s);
+  const t = el("text", { x: cx, y: cy + 4, "text-anchor": "middle", "font-size": 12, fill: "var(--muted)" }, s);
+  t.textContent = "gossip qua neighbor";
+})();
+
+/* ---------- Quorum overlap ---------- */
+(function quorum() {
+  const s = document.getElementById("qsvg");
+  const set = (x, w, color, label) => {
+    el("rect", { x, y: 30, width: w, height: 70, rx: 12, fill: color, opacity: .18 }, s);
+    el("rect", { x, y: 30, width: w, height: 70, rx: 12, fill: "none", stroke: color, "stroke-width": 2 }, s);
+    const t = el("text", { x: x + w / 2, y: 20, "text-anchor": "middle", "font-size": 12.5, "font-weight": 700, fill: color }, s); t.textContent = label;
+  };
+  set(10, 300, css("--accent"), "Quorum A: 7 node");
+  set(150, 300, css("--ok"), "Quorum B: 7 node");
+  for (let i = 0; i < N; i++) {
+    const x = 32 + i * 43, y = 65, inBoth = i >= 3 && i <= 6;
+    el("circle", { cx: x, cy: y, r: 15, fill: inBoth ? "var(--warn)" : "var(--panel)", stroke: "var(--ink)", "stroke-width": 1 }, s);
+    const t = el("text", { x, y: y + 4, "text-anchor": "middle", "font-size": 11, "font-weight": 700, fill: inBoth ? "#fff" : "var(--ink)" }, s); t.textContent = "V" + i;
+  }
+  const t = el("text", { x: 230, y: 135, "text-anchor": "middle", "font-size": 12.5, fill: "var(--ink)" }, s);
+  t.textContent = "Vùng chồng V3–V6: 4 node, nhiều hơn f = 3 node xấu";
+  const t2 = el("text", { x: 230, y: 155, "text-anchor": "middle", "font-size": 12, fill: "var(--muted)" }, s);
+  t2.textContent = "→ chắc chắn có 1 node trung thực, mà nó không vote 2 block";
+})();
+
+/* ---------- Simulator ---------- */
+const PH = ["Tx", "Propose", "Prevote", "Precommit", "Finalize"];
+const L0 = ["#0 genesis", "#1", "#2"];
+const allExcept = (src, list = IDS) => list.filter(x => x !== src);
+const toV0 = (list, label, color, extra = {}) => list.filter(x => x !== "V0").map(f => ({ from: f, to: "V0", label, color, ...extra }));
+
+const SCENARIOS = [
+{
+  key: "normal", name: "T1 · Bình thường",
+  base: { h: 3, r: 0, phase: 0, proposer: null, roles: {}, locks: [], tags: {}, ledger: L0, newBlock: false,
+          state: '{"Bob/message": "hi"}', mempool: "trống", bars: [], log: [] },
+  steps: [
+    { t: "Khởi đầu: 10 node, 10 bản sổ giống nhau",
+      d: "Chain đã finalize block 0–2. Mỗi node tự giữ ledger, state và mempool của riêng nó. Bây giờ cả mạng sẽ quyết định <b>block ở height 3</b>.",
+      code: "n = 10, f = 3, quorum = 2f + 1 = 7", s: {} },
+    { t: "1. Alice ký và gửi tx",
+      d: "Alice muốn đặt <code>Alice/message = \"hello\"</code>. Tx được ký với nhãn <code>TX:lab01</code>, gửi vào mạng, lan tới mọi node bằng gossip. Mỗi node kiểm tra chữ ký → ownership → nonce rồi cho vào mempool.",
+      code: 'tx  = Tx(sender="Alice", key="Alice/message", value="hello", nonce=0)\nsig = sign(sk_Alice, b"TX:lab01" + encode(tx))',
+      msgs: [{ from: "Alice", to: "V0", label: "TX", color: "--warn" }, ...allExcept("V0").map(t => ({ from: "V0", to: t, label: "TX", color: "--warn", delay: 700 }))],
+      s: { phase: 0, mempool: "tx(Alice, nonce 0)", log: ["recv TX Alice nonce=0 → mempool"] } },
+    { t: "2. Mọi node tự tính ra proposer",
+      d: "Không ai cần hỏi ai: công thức deterministic cho mọi node cùng một đáp án. Ở height 3, round 0, proposer là <b>V3</b>.",
+      code: "proposer = validators[(height + round) % n]\n         = validators[(3 + 0) % 10] = V3",
+      s: { phase: 1, proposer: "V3" } },
+    { t: "3. V3 đề xuất block B",
+      d: "V3 lấy tx từ mempool, <b>apply thử</b> lên bản sao state để tính <code>state_hash</code>, dựng header (height 3, parent_hash = hash block 2, state_hash, proposer V3), ký với <code>HEADER:lab01</code> rồi gửi header đi trước.",
+      code: 'header = Header(height=3, round=0, parent_hash=H(block2),\n                state_hash=sha256(encode(sorted(new_state))), proposer="V3")\nsig = sign(sk_V3, b"HEADER:lab01" + encode(header))',
+      msgs: allExcept("V3").map(t => ({ from: "V3", to: t, label: "HDR", color: "--warn" })),
+      s: { log: ["recv HEADER h=3 r=0 from V3"] } },
+    { t: "4. Header trước, body sau",
+      d: "Header nhỏ. Node chỉ xin body (danh sách tx) sau khi header qua kiểm tra: đúng chữ ký, đúng proposer, đúng parent. Header sai thì không tốn băng thông cho body.",
+      code: "HEADER → (kiểm tra) → BODY_REQUEST → BODY",
+      msgs: [...allExcept("V3").map(f => ({ from: f, to: "V3", label: "REQ", color: "--muted" })),
+             ...allExcept("V3").map(t => ({ from: "V3", to: t, label: "BODY", color: "--warn", delay: 900 }))],
+      s: { log: ["send BODY_REQUEST → V3", "recv BODY h=3 (1 tx)"] } },
+    { t: "5. Mỗi node tự kiểm tra block",
+      d: "Không ai tin proposer. Mỗi node verify chữ ký từng tx, ownership, nonce, rồi <b>tự apply lên bản sao state</b> và so <code>state_hash</code> tự tính với số trong header. Khớp thì block hợp lệ.",
+      code: "assert verify(pk_Alice, b\"TX:lab01\" + encode(tx), sig)\nassert my_state_hash == header.state_hash   # rule 3",
+      s: { tags: Object.fromEntries(IDS.map(i => [i, "✓"])) } },
+    { t: "6. Prevote cho B",
+      d: "Mỗi node ký <code>PREVOTE(3, 0, B)</code> và gửi đi. Hình vẽ các vote tới V0. Vote của V1 tới <b>2 lần</b> do mạng duplicate: V0 chỉ đếm 1 lần, vì mỗi validator chỉ có một chỗ trong <code>votes[(h, r, phase)]</code>.",
+      code: 'vote = Vote(phase="PREVOTE", height=3, round=0, block_hash=B)\nsig  = sign(sk_V0, b"VOTE:lab01" + encode(vote))\nvotes[(3, 0, "PREVOTE")][voter] = vote   # rule 7: không đếm trùng',
+      msgs: toV0(IDS, "PV", "--accent").map(m => m.from === "V1" ? { ...m, fate: "dup" } : m),
+      s: { phase: 2, tags: Object.fromEntries(IDS.map(i => [i, "PV B"])), bars: [{ l: "PREVOTE B", n: 10, c: "--accent" }],
+           log: ["recv PREVOTE B ×10 validator", "duplicate_ignored from V1"] } },
+    { t: "7. Polka → lock B",
+      d: "V0 thấy ≥ 7 PREVOTE cho cùng B (gọi là <b>polka</b>). Nó <b>lock</b> B: từ giờ ở height này, các round sau chỉ prevote B trừ khi thấy polka mới hơn cho block khác.",
+      code: "if count(PREVOTE, B) >= 7:\n    locked_block, locked_round = B, 0",
+      s: { locks: IDS, log: ["polka h=3 r=0 block=B → lock"] } },
+    { t: "8. Precommit cho B",
+      d: "Sau khi lock, mỗi node ký <code>PRECOMMIT(3, 0, B)</code>. Prevote nghĩa là “tôi thấy B hợp lệ”; precommit nghĩa là “tôi biết đa số cũng thấy vậy”.",
+      code: 'vote = Vote(phase="PRECOMMIT", height=3, round=0, block_hash=B)',
+      msgs: toV0(IDS, "PC", "--ok"),
+      s: { phase: 3, tags: Object.fromEntries(IDS.map(i => [i, "PC B"])),
+           bars: [{ l: "PREVOTE B", n: 10, c: "--accent" }, { l: "PRECOMMIT B", n: 10, c: "--ok" }],
+           log: ["recv PRECOMMIT B ×10 validator"] } },
+    { t: "9. Finalize B",
+      d: "≥ 7 PRECOMMIT → B <b>finalized vĩnh viễn</b>. V0 append B vào ledger, apply state thật, lưu commit certificate (7 precommit có chữ ký) để node vào trễ tự verify khi block sync.",
+      code: "ledger.append(B); state = apply(state, B.txs)\nlog FINALIZE height=3 hash=B state_hash=…",
+      s: { phase: 4, ledger: [...L0, "#3 B"], newBlock: true, state: '{"Alice/message": "hello", "Bob/message": "hi"}', mempool: "trống",
+           log: ["FINALIZE height=3 round=0 proposer=V3 hash=B"] } },
+    { t: "10. Sang height 4",
+      d: "Xóa lock, round về 0, proposer mới tự tính được: <code>validators[(4 + 0) % 10] = V4</code>. Vòng lặp tiếp tục.",
+      code: "height, round = 4, 0; locked_block = None",
+      s: { h: 4, r: 0, phase: 0, proposer: "V4", locks: [], tags: {}, bars: [], newBlock: false } },
+  ]
+},
+{
+  key: "silent", name: "T6 · Proposer im lặng",
+  base: { h: 3, r: 0, phase: 1, proposer: "V3", roles: { V3: "silent" }, locks: [], tags: {}, ledger: L0, newBlock: false,
+          state: '{"Bob/message": "hi"}', mempool: "tx(Alice, nonce 0)", bars: [], log: [] },
+  steps: [
+    { t: "Proposer V3 đã chết",
+      d: "Ở height 3 round 0, proposer là V3, nhưng V3 bị tắt hoặc cố tình im lặng. Mọi node đang chờ proposal.",
+      code: "proposer = validators[(3 + 0) % 10] = V3   # nhưng V3 không gửi gì", s: {} },
+    { t: "1. Hết propose_timeout",
+      d: "Không có header nào tới. Hết giờ chờ, mỗi node <b>prevote NIL</b>: “tôi không ủng hộ block nào ở round này”.",
+      code: 'Vote(phase="PREVOTE", height=3, round=0, block_hash=NIL)',
+      msgs: toV0(allExcept("V3"), "NIL", "--nil"),
+      s: { phase: 2, tags: Object.fromEntries(allExcept("V3").map(i => [i, "NIL"])), bars: [{ l: "PREVOTE B", n: 0, c: "--accent" }, { l: "PREVOTE NIL", n: 9, c: "--nil" }],
+           log: ["timeout propose h=3 r=0", "PREVOTE NIL"] } },
+    { t: "2. Không có polka → precommit NIL",
+      d: "Không block nào có ≥ 7 prevote, nên không ai lock, mọi node precommit NIL. Chain đứng yên ở height 3: mất liveness tạm thời, nhưng <b>safety vẫn nguyên</b>.",
+      code: 'Vote(phase="PRECOMMIT", height=3, round=0, block_hash=NIL)',
+      msgs: toV0(allExcept("V3"), "NIL", "--nil"),
+      s: { phase: 3, bars: [{ l: "PRECOMMIT B", n: 0, c: "--ok" }, { l: "PRECOMMIT NIL", n: 9, c: "--nil" }], log: ["PRECOMMIT NIL"] } },
+    { t: "3. Timeout → round 1, proposer mới",
+      d: "Sang round 1. Proposer mới được tính lại: <b>V4</b>. Timeout của round này dài hơn round trước, để sau GST chắc chắn có round đủ thời gian.",
+      code: "proposer = validators[(3 + 1) % 10] = V4\ntimeout  = base + round * delta",
+      s: { r: 1, phase: 1, proposer: "V4", tags: {}, bars: [], log: ["timeout precommit → round 1"] } },
+    { t: "4. V4 đề xuất, mọi người prevote",
+      d: "V4 gửi header và body. 9 node còn sống kiểm tra rồi prevote. 9 ≥ 7 nên có polka, mọi node lock B'.",
+      code: "count(PREVOTE, B') = 9 >= 7  → lock B'",
+      msgs: [...allExcept("V4").filter(x => x !== "V3").map(t => ({ from: "V4", to: t, label: "HDR", color: "--warn" })),
+             ...toV0(allExcept("V3"), "PV", "--accent").map(m => ({ ...m, delay: 900 }))],
+      s: { phase: 2, tags: Object.fromEntries(allExcept("V3").map(i => [i, "PV B'"])), locks: allExcept("V3"),
+           bars: [{ l: "PREVOTE B'", n: 9, c: "--accent" }], log: ["recv HEADER h=3 r=1 from V4", "polka r=1 → lock B'"] } },
+    { t: "5. Finalize ở round 1",
+      d: "9 precommit → B' finalized ở <b>height 3, round 1</b>. Chain chạy tiếp dù có một proposer chết. Đây chính là điều T6 kiểm tra.",
+      code: "FINALIZE height=3 round=1 proposer=V4",
+      msgs: toV0(allExcept("V3"), "PC", "--ok"),
+      s: { phase: 4, ledger: [...L0, "#3 B' (r1)"], newBlock: true, state: '{"Alice/message": "hello", "Bob/message": "hi"}', mempool: "trống",
+           bars: [{ l: "PREVOTE B'", n: 9, c: "--accent" }, { l: "PRECOMMIT B'", n: 9, c: "--ok" }], log: ["FINALIZE height=3 round=1 proposer=V4"] } },
+  ]
+},
+{
+  key: "byz", name: "T7 · 3 node Byzantine",
+  base: { h: 3, r: 0, phase: 1, proposer: "V3", roles: { V3: "byz", V6: "byz", V9: "byz" }, locks: [], tags: {}, ledger: L0, newBlock: false,
+          state: '{"Bob/message": "hi"}', mempool: "tx(Alice), tx(Bob)", bars: [], log: [] },
+  steps: [
+    { t: "f = 3 kẻ xấu: V3, V6, V9",
+      d: "V3 là proposer và là Byzantine. V6, V9 đồng lõa. Mục tiêu của chúng: làm cho hai nhóm node trung thực finalize <b>hai block khác nhau</b> ở cùng height 3.",
+      code: "honest = 7 node, byzantine = 3 node, quorum = 7", s: {} },
+    { t: "1. V3 đề xuất hai block",
+      d: "V3 gửi <b>block A</b> cho V0, V1, V2, V4 và <b>block C</b> cho V5, V7, V8. Cả hai block đều có chữ ký thật của V3, vì nó có secret key của chính nó.",
+      code: "V0, V1, V2, V4 ← A\nV5, V7, V8     ← C",
+      msgs: [...["V0", "V1", "V2", "V4"].map(t => ({ from: "V3", to: t, label: "A", color: "--accent" })),
+             ...["V5", "V7", "V8"].map(t => ({ from: "V3", to: t, label: "C", color: "--byz" }))],
+      s: { tags: { V0: "có A", V1: "có A", V2: "có A", V4: "có A", V5: "có C", V7: "có C", V8: "có C" }, log: ["recv HEADER h=3 r=0 from V3 → A"] } },
+    { t: "2. Prevote: kẻ xấu vote hai mang",
+      d: "Node trung thực prevote block mình nhận được. V3, V6, V9 prevote <b>cả A lẫn C</b> (equivocation), mỗi bên một bản.",
+      code: "A: V0 V1 V2 V4 + V3 V6 V9 = 7\nC: V5 V7 V8    + V3 V6 V9 = 6",
+      msgs: [...["V1", "V2", "V4", "V3", "V6", "V9"].map(f => ({ from: f, to: "V0", label: "A", color: "--accent" })),
+             ...["V3", "V6", "V9"].map(f => ({ from: f, to: "V5", label: "C", color: "--byz", delay: 400 })),
+             ...["V7", "V8"].map(f => ({ from: f, to: "V5", label: "C", color: "--byz", delay: 400 }))],
+      s: { phase: 2, tags: { V0: "PV A", V1: "PV A", V2: "PV A", V4: "PV A", V5: "PV C", V7: "PV C", V8: "PV C", V3: "A+C", V6: "A+C", V9: "A+C" },
+           bars: [{ l: "PREVOTE A", n: 7, c: "--accent" }, { l: "PREVOTE C", n: 6, c: "--byz" }], log: ["recv PREVOTE A ×7 validator"] } },
+    { t: "3. Equivocation bị phát hiện",
+      d: "Gossip đưa cả hai phiên bản vote của V6 tới cùng một node. Node đó giữ vote đầu, <b>không đếm</b> vote thứ hai và ghi log. Danh sách equivocation này đi vào results.",
+      code: "votes[(3,0,PREVOTE)][V6] đã có A, giờ thấy C\n→ log equivocation_detected V6 (giữ vote đầu)",
+      msgs: [{ from: "V5", to: "V0", label: "C(V6)", color: "--byz" }],
+      s: { log: ["equivocation_detected V6 h=3 r=0 PREVOTE", "equivocation_detected V3 h=3 r=0 PREVOTE", "equivocation_detected V9 h=3 r=0 PREVOTE"] } },
+    { t: "4. Vì sao C không bao giờ thắng",
+      d: "C có nhiều nhất 3 node trung thực + 3 node xấu = <b>6 &lt; 7</b>. Muốn đủ 7, nó cần thêm một node trung thực đã vote A, nhưng node trung thực không vote 2 block. Trên lý thuyết, chỉ <b>tối đa một</b> block đạt quorum ở mỗi round.",
+      code: "max(C) = honest_C + f = 3 + 3 = 6 < 7",
+      s: { locks: ["V0", "V1", "V2", "V4"] } },
+    { t: "5. Kết quả: safety giữ nguyên",
+      d: "Chỉ A có thể được finalize; C thì không bao giờ. Trong thực tế kẻ xấu có thể im lặng ở precommit để kéo dài, khi đó chain sang round mới, nhưng <b>không bao giờ</b> có hai block khác nhau ở height 3. Đây là điều T7 kiểm tra.",
+      code: "check_safety: mọi node trung thực có cùng block ở mỗi height ✓",
+      msgs: toV0(["V1", "V2", "V4", "V3", "V6", "V9"], "PC A", "--ok"),
+      s: { phase: 4, ledger: [...L0, "#3 A"], newBlock: true, bars: [{ l: "PRECOMMIT A", n: 7, c: "--ok" }, { l: "PRECOMMIT C", n: 0, c: "--byz" }],
+           log: ["FINALIZE height=3 hash=A", "C: không bao giờ đạt quorum"] } },
+  ]
+},
+{
+  key: "faults", name: "T2 / T5 · Mạng chập chờn",
+  base: { h: 3, r: 0, phase: 2, proposer: "V3", roles: {}, locks: [], tags: {}, ledger: L0, newBlock: false,
+          state: '{"Bob/message": "hi"}', mempool: "tx(Alice)", bars: [], log: [] },
+  steps: [
+    { t: "Fault injection quyết định số phận message",
+      d: "Trước khi gửi qua TCP, mỗi message tới mỗi neighbor được tính một số <code>u</code> từ hash. Cùng message, cùng đường nối thì luôn cùng kết quả, dù chạy lần nào.",
+      code: "u = sha256(seed | src | dst | message_id) → [0, 1)\nu < drop_rate         → drop\nu < drop_rate + dup   → duplicate\ncòn lại               → delay (ngắn hoặc rất dài)", s: {} },
+    { t: "1. Trước GST: mạng rất tệ",
+      d: "Height 3 &lt; <code>gst_height</code>, <code>drop_rate = 0.4</code>. Nhiều prevote bị <b>mất</b> (✕) hoặc <b>trễ rất lâu</b> (nét đứt). V0 chỉ nhận được 5 prevote: chưa đủ 7.",
+      code: "nhận được 5 / cần 7 → chưa có polka",
+      msgs: toV0(IDS, "PV", "--accent").map(m => ["V2", "V5", "V8"].includes(m.from) ? { ...m, fate: "drop" } : ["V6", "V9"].includes(m.from) ? { ...m, fate: "late" } : m),
+      s: { tags: Object.fromEntries(IDS.map(i => [i, "PV B"])), bars: [{ l: "PREVOTE B (V0 nhận)", n: 5, c: "--accent" }],
+           log: ["drop PREVOTE V2→V0", "drop PREVOTE V5→V0", "drop PREVOTE V8→V0", "delay PREVOTE V6→V0 (dài)", "delay PREVOTE V9→V0 (dài)"] } },
+    { t: "2. Không đủ vote thì đứng yên, không đoán",
+      d: "V0 <b>không</b> finalize khi thiếu vote. Hết giờ, nó precommit NIL và sang round 1. Mất liveness tạm thời thì được, mất safety thì không bao giờ.",
+      code: "if count < 7 and timeout: PRECOMMIT NIL → round + 1",
+      s: { phase: 3, r: 1, tags: {}, bars: [{ l: "PREVOTE B (V0 nhận)", n: 5, c: "--accent" }], log: ["timeout prevote h=3 r=0 → PRECOMMIT NIL", "round 1"] } },
+    { t: "3. Message trùng và sai thứ tự",
+      d: "Ở round 1, vài vote tới <b>2 lần</b> (×2) hoặc tới trước khi node sẵn sàng. Bản trùng bị bỏ theo message id và theo validator; vote của round chưa tới thì được buffer lại.",
+      code: "seen(message_id)          → không chuyển tiếp lại\nvotes[(h,r,phase)][voter] → không đếm 2 lần",
+      msgs: toV0(IDS, "PV", "--accent").map(m => ["V1", "V4", "V7"].includes(m.from) ? { ...m, fate: "dup" } : ["V5"].includes(m.from) ? { ...m, fate: "drop" } : m),
+      s: { phase: 2, tags: Object.fromEntries(IDS.map(i => [i, "PV B"])), bars: [{ l: "PREVOTE B (V0 nhận)", n: 8, c: "--accent" }],
+           log: ["duplicate_ignored V1", "duplicate_ignored V4", "duplicate_ignored V7", "polka h=3 r=1 → lock B"] } },
+    { t: "4. Sau GST: mọi message tới trong ∆",
+      d: "Khi height ≥ <code>gst_height</code>, message giữa các node trung thực tới trong ≤ ∆. Timeout đã đủ dài nên đủ vote, block được finalize và chain chạy tiếp. Đây là điều T5 kiểm tra.",
+      code: "FINALIZE height=3 round=1\ncheck_safety: không có 2 hash ở cùng height ✓",
+      msgs: toV0(IDS, "PC", "--ok"),
+      s: { phase: 4, locks: IDS, ledger: [...L0, "#3 B (r1)"], newBlock: true, state: '{"Alice/message": "hello", "Bob/message": "hi"}', mempool: "trống",
+           bars: [{ l: "PREVOTE B (V0 nhận)", n: 8, c: "--accent" }, { l: "PRECOMMIT B", n: 10, c: "--ok" }], log: ["FINALIZE height=3 round=1 hash=B"] } },
+  ]
+},
+];
+
+// build cumulative states
+for (const sc of SCENARIOS) {
+  let cur = { ...sc.base };
+  for (const st of sc.steps) { cur = { ...cur, ...st.s, log: [...(cur.log || []).slice(0), ...((st.s && st.s.log) || [])] }; st.state = cur; }
+}
+
+const svg = document.getElementById("net");
+const CX = 300, CY = 262, R = 190;
+const pos = id => {
+  if (id === "Alice") return [55, 55];
+  const i = +id.slice(1), a = (-90 + i * 36) * Math.PI / 180;
+  return [CX + R * Math.cos(a), CY + R * Math.sin(a)];
+};
+const gEdges = el("g", {}, svg), gNodes = el("g", {}, svg), gMsgs = el("g", {}, svg);
+for (let i = 0; i < N; i++) for (const j of neighbors(i)) {
+  const [x1, y1] = pos("V" + i), [x2, y2] = pos("V" + j);
+  el("line", { x1, y1, x2, y2, stroke: "var(--line)", "stroke-width": 1.2 }, gEdges);
+}
+
+let scIdx = 0, stIdx = 0, animToken = 0;
+
+function drawNodes(s) {
+  gNodes.innerHTML = "";
+  // Alice
+  const [ax, ay] = pos("Alice");
+  el("rect", { x: ax - 32, y: ay - 14, width: 64, height: 28, rx: 14, fill: "var(--warn)", opacity: .9 }, gNodes);
+  const at = el("text", { x: ax, y: ay + 4.5, "text-anchor": "middle", "font-size": 13, "font-weight": 700, fill: "#fff" }, gNodes); at.textContent = "Alice";
+  for (const id of IDS) {
+    const [x, y] = pos(id), role = s.roles[id];
+    let fill = "var(--accent)";
+    if (role === "byz") fill = "var(--byz)"; else if (role === "silent") fill = "var(--nil)";
+    if (s.proposer === id) el("circle", { cx: x, cy: y, r: 31, fill: "none", stroke: "var(--warn)", "stroke-width": 4 }, gNodes);
+    el("circle", { cx: x, cy: y, r: 25, fill }, gNodes);
+    const t = el("text", { x, y: y + 5, "text-anchor": "middle", "font-size": 15, "font-weight": 700, fill: "#fff" }, gNodes);
+    t.textContent = id + (role === "byz" ? "☠" : role === "silent" ? "💤" : "");
+    if (s.locks.includes(id)) { const l = el("text", { x: x + 20, y: y - 16, "font-size": 15 }, gNodes); l.textContent = "🔒"; }
+    if (s.tags[id]) {
+      const tag = s.tags[id], w = 8 + tag.length * 6.6;
+      const outward = y > CY ? 44 : -36;
+      el("rect", { x: x - w / 2, y: y + outward - 11, width: w, height: 18, rx: 9, fill: "var(--panel)", stroke: "var(--line)" }, gNodes);
+      const tt = el("text", { x, y: y + outward + 2, "text-anchor": "middle", "font-size": 11, fill: "var(--ink)" }, gNodes); tt.textContent = tag;
+    }
+  }
+  const c = el("text", { x: CX, y: CY - 8, "text-anchor": "middle", "font-size": 14, "font-weight": 700, fill: "var(--ink)" }, gNodes);
+  c.textContent = `height ${s.h} · round ${s.r}`;
+  const c2 = el("text", { x: CX, y: CY + 14, "text-anchor": "middle", "font-size": 12, fill: "var(--muted)" }, gNodes);
+  c2.textContent = s.proposer ? `proposer = ${s.proposer}` : "";
+}
+
+function fly(m, token) {
+  const [x1, y1] = pos(m.from), [x2, y2] = pos(m.to);
+  const color = css(m.color) || m.color;
+  const late = m.fate === "late", dur = late ? 2600 : 950, delay = m.delay || 0;
+  const make = (extraDelay, tagTxt) => {
+    const g = el("g", { opacity: 0 }, gMsgs);
+    const trail = el("line", { x1, y1, x2: x1, y2: y1, stroke: color, "stroke-width": 2, opacity: .45, "stroke-dasharray": late ? "5 4" : "" }, g);
+    el("circle", { r: 13, fill: color }, g);
+    const t = el("text", { "text-anchor": "middle", "font-size": 8.5, "font-weight": 700, fill: "#fff", y: 3 }, g); t.textContent = m.label;
+    const dot = g.children[1], txt = t;
+    let tag;
+    if (tagTxt) { tag = el("text", { "font-size": 11, "font-weight": 700, fill: color }, g); tag.textContent = tagTxt; }
+    const stopAt = m.fate === "drop" ? 0.55 : 1;
+    const t0 = performance.now() + delay + extraDelay;
+    const step = now => {
+      if (token !== animToken) { g.remove(); return; }
+      if (now < t0) return requestAnimationFrame(step);
+      g.setAttribute("opacity", 1);
+      const k = Math.min((now - t0) / dur, stopAt), e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+      const x = x1 + (x2 - x1) * e, y = y1 + (y2 - y1) * e;
+      dot.setAttribute("cx", x); dot.setAttribute("cy", y);
+      txt.setAttribute("x", x); txt.setAttribute("y", y + 3);
+      trail.setAttribute("x2", x); trail.setAttribute("y2", y);
+      if (tag) { tag.setAttribute("x", x + 14); tag.setAttribute("y", y - 10); }
+      if (k < stopAt) return requestAnimationFrame(step);
+      if (m.fate === "drop") {
+        const xx = el("text", { x, y: y + 6, "text-anchor": "middle", "font-size": 22, "font-weight": 700, fill: css("--bad") }, g); xx.textContent = "✕";
+        dot.setAttribute("opacity", .25); txt.setAttribute("opacity", .25);
+      } else {
+        g.setAttribute("opacity", .0);
+      }
+    };
+    requestAnimationFrame(step);
+  };
+  make(0, late ? "trễ" : "");
+  if (m.fate === "dup") make(260, "×2");
+}
+
+function render(animate = true) {
+  const sc = SCENARIOS[scIdx], st = sc.steps[stIdx], s = st.state;
+  animToken++;
+  gMsgs.innerHTML = "";
+  drawNodes(s);
+  document.getElementById("phases").innerHTML = PH.map((p, i) => `<div class="${i === s.phase ? "on" : ""}">${p}</div>`).join("");
+  document.getElementById("stitle").textContent = st.t;
+  document.getElementById("sdesc").innerHTML = st.d;
+  document.getElementById("scode").textContent = st.code || "";
+  document.getElementById("sview").innerHTML =
+    `<dt>Height / round</dt><dd>${s.h} / ${s.r}</dd>` +
+    `<dt>Proposer</dt><dd>${s.proposer || "—"}</dd>` +
+    `<dt>Lock của V0</dt><dd>${s.locks.includes("V0") ? "🔒 đã lock" : "chưa lock"}</dd>` +
+    `<dt>Mempool</dt><dd>${s.mempool}</dd>` +
+    `<dt>State</dt><dd><code>${s.state}</code></dd>`;
+  document.getElementById("sbars").innerHTML = s.bars.map(b => {
+    const pct = b.n * 10, ok = b.n >= 7;
+    return `<div class="bar"><div class="lbl"><span>${b.l}</span><span class="${ok ? "ok" : ""}"><b>${b.n}</b> / 10 ${ok ? "≥ 7 ✓" : "&lt; 7"}</span></div>
+      <div class="track"><div class="fill" style="width:${pct}%;background:var(${b.c})"></div><div class="q" title="quorum 7"></div></div></div>`;
+  }).join("");
+  document.getElementById("sledger").innerHTML = s.ledger.map((b, i) =>
+    `<span class="chip ${s.newBlock && i === s.ledger.length - 1 ? "new" : ""}">${b}</span>`).join("");
+  const lg = document.getElementById("slog");
+  lg.textContent = s.log.length ? s.log.join("\n") : "(chưa có event)";
+  lg.scrollTop = lg.scrollHeight;
+  document.getElementById("count").textContent = `Bước ${stIdx + 1} / ${sc.steps.length}`;
+  document.getElementById("prev").disabled = stIdx === 0;
+  document.getElementById("next").disabled = stIdx === sc.steps.length - 1;
+  if (animate && st.msgs) { const tk = animToken; st.msgs.forEach(m => fly(m, tk)); }
+}
+
+const tabs = document.getElementById("tabs");
+SCENARIOS.forEach((sc, i) => {
+  const b = document.createElement("button");
+  b.textContent = sc.name;
+  b.onclick = () => { scIdx = i; stIdx = 0; [...tabs.children].forEach((c, j) => c.classList.toggle("on", j === i)); render(); };
+  tabs.appendChild(b);
+});
+tabs.children[0].classList.add("on");
+document.getElementById("next").onclick = () => { const n = SCENARIOS[scIdx].steps.length; if (stIdx < n - 1) { stIdx++; render(); } };
+document.getElementById("prev").onclick = () => { if (stIdx > 0) { stIdx--; render(); } };
+document.getElementById("replay").onclick = () => render();
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight") document.getElementById("next").click();
+  if (e.key === "ArrowLeft") document.getElementById("prev").click();
+});
+render(false);
+})();
+</script>
+</body>
+</html>

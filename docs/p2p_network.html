@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab01 – Hạ tầng mạng P2P (role C)</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e2e2e0;
+    --accent: #3b6fd8; --ok: #2f9e5b; --warn: #d08a1c; --bad: #d4483b; --vio: #8a5cd0;
+    --soft-accent: #e8eefb; --soft-ok: #e6f4ec; --soft-bad: #fbe9e7; --soft-warn: #fbf1df; --soft-vio: #f0e9fa;
+    --code: #f1f1ef;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --panel: #1d1d20; --ink: #ececee; --muted: #9a9aa2; --line: #2e2e33;
+      --accent: #6d97f0; --ok: #4cc07c; --warn: #e6a53d; --bad: #ef6a5c; --vio: #a985e6;
+      --soft-accent: #22304d; --soft-ok: #1d3527; --soft-bad: #3d2220; --soft-warn: #3a2f1b; --soft-vio: #2f2540;
+      --code: #26262a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.02em; }
+  h2 { font-size: 22px; margin: 56px 0 6px; letter-spacing: -0.01em; }
+  h3 { font-size: 16px; margin: 0 0 8px; }
+  p.lead { color: var(--muted); margin: 0 0 18px; max-width: 840px; }
+  .sub { color: var(--muted); margin: 0 0 18px; max-width: 840px; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code); padding: 10px 12px; border-radius: 8px; margin: 8px 0 0; white-space: pre-wrap; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .card p { margin: 6px 0; }
+  .grid { display: grid; gap: 14px; }
+  .g2 { grid-template-columns: repeat(2, 1fr); }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 860px) { .g2, .g3 { grid-template-columns: 1fr; } }
+  .goal { border-left: 4px solid var(--accent); background: var(--soft-accent); padding: 12px 16px; border-radius: 8px; margin: 14px 0 20px; }
+  .note { border-left: 4px solid var(--warn); background: var(--soft-warn); padding: 10px 14px; border-radius: 8px; margin: 12px 0; font-size: 14px; }
+  .pill { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; }
+  nav.toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 0; }
+  nav.toc a { font-size: 13px; text-decoration: none; color: var(--accent); border: 1px solid var(--line); background: var(--panel); padding: 4px 10px; border-radius: 99px; }
+
+  /* stack */
+  .stack { display: flex; flex-direction: column; gap: 6px; }
+  .lay { display: grid; grid-template-columns: 170px 1fr auto; gap: 12px; align-items: center; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
+  .lay b { font-size: 14.5px; } .lay span { color: var(--muted); font-size: 13.5px; }
+  .lay .tag { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 99px; white-space: nowrap; }
+  .lay.c { border-color: var(--accent); background: var(--soft-accent); }
+  .tag.c { background: var(--accent); color: #fff; } .tag.o { background: var(--code); color: var(--muted); }
+  .down { text-align: center; color: var(--muted); font-size: 12.5px; }
+  @media (max-width: 700px) { .lay { grid-template-columns: 1fr; } }
+
+  /* lifecycle */
+  .flow { display: flex; flex-wrap: wrap; gap: 0; }
+  .flow .st { flex: 1 1 150px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; position: relative; margin: 0 22px 10px 0; cursor: pointer; }
+  .flow .st:not(:last-child)::after { content: "→"; position: absolute; right: -18px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+  .flow .st b { display: block; font-size: 13.5px; } .flow .st span { font-size: 12.5px; color: var(--muted); }
+  .flow .st .n { font-size: 11px; font-weight: 700; color: var(--accent); }
+  .flow .st.on { border-color: var(--accent); background: var(--soft-accent); }
+  #lifeDetail { min-height: 120px; }
+
+  /* framing */
+  .bytes { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 8px; }
+  .bytes span { font-family: ui-monospace, Menlo, monospace; font-size: 12px; padding: 3px 5px; border-radius: 4px; background: var(--code); }
+  .bytes span.h { background: var(--soft-warn); color: var(--warn); font-weight: 700; }
+  .bytes span.b { background: var(--soft-accent); color: var(--accent); }
+  .bytes span.b2 { background: var(--soft-vio); color: var(--vio); }
+  .bytes span.cut { background: transparent; color: var(--bad); padding: 3px 2px; font-weight: 700; }
+  input[type=text] { font: inherit; font-size: 14px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); width: 100%; }
+  button { font: inherit; font-size: 13.5px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+  button.pri { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .4; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .parsed { margin-top: 8px; font-size: 13.5px; }
+  .parsed div { padding: 3px 0; }
+
+  /* sequence */
+  .seq { display: grid; grid-template-columns: 1fr 2.2fr 1fr; gap: 6px 10px; align-items: center; font-size: 13.5px; }
+  .seq .actor { text-align: center; font-weight: 700; padding: 6px; border-radius: 8px; background: var(--code); }
+  .seq .msg { text-align: center; position: relative; padding: 4px 0; }
+  .seq .msg code { font-size: 12px; }
+  .seq .msg.r::before, .seq .msg.l::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1.5px solid var(--muted); z-index: 0; }
+  .seq .msg span { position: relative; z-index: 1; background: var(--panel); padding: 0 8px; }
+  .seq .msg.r span::after { content: " →"; color: var(--muted); }
+  .seq .msg.l span::before { content: "← "; color: var(--muted); }
+  .seq .side { font-size: 12.5px; color: var(--muted); }
+
+  /* simulator */
+  .sim { display: grid; grid-template-columns: 1.2fr 1fr; gap: 14px; }
+  @media (max-width: 960px) { .sim { grid-template-columns: 1fr; } }
+  svg#net { width: 100%; height: auto; display: block; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0; }
+  .stats div { background: var(--code); border-radius: 8px; padding: 8px; text-align: center; }
+  .stats b { display: block; font-size: 20px; } .stats small { color: var(--muted); font-size: 11.5px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+  #simLog { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: var(--code); border-radius: 8px; padding: 8px 10px; height: 230px; overflow: auto; white-space: pre; }
+  label.sl { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Hạ tầng mạng P2P của Lab01</h1>
+<p class="lead">Phần role C, theo <b>kế hoạch tối giản</b> (<code>ROLE_C_P2P_LITE.md</code>): các node đọc danh sách peer từ config, nối TCP thật với nhau (full mesh), xác minh danh tính bằng HELLO, rồi lan message
+(transaction, block, vote) tới toàn mạng mà không có máy chủ trung tâm. Trang này đi từ bức tranh tổng
+đến chi tiết từng tầng, có 2 phần thử tay: <b>framing</b> và <b>mô phỏng gossip</b>.</p>
+
+<div class="goal"><b>Một câu tóm tắt:</b> <em>StaticPeers</em> đọc config và nối tới mọi peer →
+<em>tcp_transport</em> giữ kết nối và chuyển bytes → <em>gossip</em> lan message đi khắp mạng, mỗi
+message mỗi node xử lý đúng một lần. Consensus ở trên chỉ cần gọi <code>broadcast()</code> và nhận
+callback.</div>
+
+<nav class="toc">
+  <a href="#stack">1. Các tầng</a><a href="#life">2. Vòng đời một node</a><a href="#disc">3. Kết nối từ config</a>
+  <a href="#tcp">4. TCP transport</a><a href="#frame">5. Thử framing</a><a href="#gossip">6. Gossip</a>
+  <a href="#sim">7. Mô phỏng gossip</a><a href="#fault">8. Lỗi mạng &amp; rate limit</a><a href="#test">9. Test &amp; trạng thái</a>
+</nav>
+
+<!-- 1 -->
+<h2 id="stack">1. Các tầng trong một node</h2>
+<p class="sub">Mỗi node là một process Python chạy <code>asyncio</code>. Tầng trên chỉ gọi tầng ngay dưới nó; tầng dưới báo
+ngược lên bằng callback. Ba ô tô xanh là phần của bạn.</p>
+<div class="stack">
+  <div class="lay"><b>consensus</b><span>Propose → Prevote → Precommit, quyết định chốt block</span><span class="tag o">B</span></div>
+  <div class="down">gọi <code>gossip.broadcast(kind, payload)</code> ↓ &nbsp; ↑ <code>on_message(kind, payload, from)</code></div>
+  <div class="lay c"><b>gossip.py</b><span>dedup theo message_id, chuyển tiếp cho các peer, HEADER trước BODY sau</span><span class="tag c">C</span></div>
+  <div class="down">gọi <code>transport.send(peer_id, bytes)</code> ↓ &nbsp; ↑ <code>receiver(peer_id, bytes)</code></div>
+  <div class="lay c"><b>tcp_transport.py</b><span>listen/connect, framing 4 byte, 1 vòng đọc mỗi peer, gửi bằng <code>write()</code></span><span class="tag c">C</span></div>
+  <div class="down">↕ TCP qua <code>127.0.0.1</code> hoặc IP ZeroTier</div>
+  <div class="lay c"><b>static_peers.py</b><span>đọc <code>network.peers</code> từ config, nối peer có id nhỏ hơn, thử lại mỗi 1 giây</span><span class="tag c">C</span></div>
+  <div class="lay c"><b>hello.py</b><span>tạo và kiểm HELLO có chữ ký, đưa vào transport qua <code>set_handshake()</code></span><span class="tag c">C</span></div>
+</div>
+<div class="grid g3" style="margin-top:14px">
+  <div class="card"><h3>StaticPeers điều khiển transport</h3><p>StaticPeers quyết định <b>nối với ai</b>: gọi <code>transport.connect(addr)</code>
+  cho các peer có id nhỏ hơn, nghe <code>set_disconnect_handler()</code> để ghi log, rồi vòng thử lại tự nối lại.</p></div>
+  <div class="card"><h3>Transport không hiểu nội dung</h3><p>Nó chỉ thấy bytes. Không biết đó là vote hay block, không kiểm chữ ký vote.
+  Giống bưu điện: giao đúng địa chỉ, không mở thư.</p></div>
+  <div class="card"><h3>Gossip không biết socket</h3><p>Gossip chỉ thấy <code>peers()</code>, <code>send()</code> và callback nhận.
+  Đổi transport (TCP thật ↔ giả lập) không phải sửa gossip.</p></div>
+</div>
+
+<!-- 2 -->
+<h2 id="life">2. Vòng đời một node, từ lúc bật đến lúc gossip</h2>
+<p class="sub">Bấm vào từng bước để xem chi tiết.</p>
+<div class="flow" id="lifeFlow"></div>
+<div class="card" id="lifeDetail"></div>
+
+<!-- 3 -->
+<h2 id="disc">3. Kết nối: full mesh từ config</h2>
+<p class="sub">Validator set cố định trong một lần chạy (đề mục 3), nên config đằng nào cũng có danh sách 10 validator.
+Thêm địa chỉ vào là mỗi node biết hết peer, không cần discovery. Đề mục 6 cho phép "connections ... file-driven".</p>
+<div class="grid g2">
+  <div class="card">
+    <h3>Danh sách peer trong config</h3>
+<pre>"network": {
+  "peers": {
+    "v0": "127.0.0.1:9000",
+    "v1": "127.0.0.1:9001",
+    ...
+    "v9": "127.0.0.1:9009"
+  },
+  "retry_interval": 1.0
+}</pre>
+    <p>Chạy nhiều máy qua ZeroTier: chỉ đổi <code>127.0.0.1</code> thành IP ZeroTier của máy chạy node đó.</p>
+  </div>
+  <div class="card">
+    <h3>Full mesh: ai nối với ai</h3>
+    <p>Mỗi node nối với <b>cả 9 node còn lại</b>. 10 node chỉ có <b>45</b> kết nối, không đáng kể, nên bỏ hẳn được phần chọn neighbor.</p>
+    <p><b>Node id lớn chủ động nối tới node id nhỏ.</b> Một cặp node không bao giờ cùng mở kết nối tới nhau.</p>
+    <table id="dialTable"></table>
+  </div>
+  <div class="card">
+    <h3>Vòng thử lại mỗi 1 giây</h3>
+<pre>while running:
+    for peer, addr in peers.items():
+        if peer &lt; me and peer not in transport.peers():
+            await transport.connect(addr)   # thất bại thì lần sau thử lại
+    await asyncio.sleep(retry_interval)</pre>
+    <p>Không cần biết thứ tự bật node: node bật trước cứ thử lại cho đến khi peer kia lên. Node chết rồi bật lại cũng được nối lại tự động.</p>
+  </div>
+  <div class="card">
+    <h3>Mất kết nối (test D2)</h3>
+    <p>Peer chết → transport gọi disconnect handler → log <code>peer_removed</code>. Peer bật lại:</p>
+    <ul>
+      <li>nếu peer có id <b>nhỏ hơn</b>: vòng thử lại của mình nối tới nó;</li>
+      <li>nếu peer có id <b>lớn hơn</b>: vòng thử lại của <b>nó</b> nối tới mình.</li>
+    </ul>
+    <p>Nối được → log <code>peer_added</code>. Trong lúc thiếu một peer, gossip vẫn tới được các node còn lại vì full mesh.</p>
+  </div>
+</div>
+<div class="note"><b>Multicast discovery</b> (ANNOUNCE qua UDP) là bậc 5, tuỳ chọn. Nếu làm, nó chỉ thêm địa chỉ vào cùng bảng <code>peers</code>;
+quy tắc "id lớn nối id nhỏ" và vòng thử lại giữ nguyên. Test D1 cần chốt với nhóm: đổi thành "đủ full mesh từ config".</div>
+<div class="card" style="margin-top:14px">
+  <h3>HELLO: xác minh danh tính sau khi nối TCP</h3>
+  <p>TCP chỉ cho biết <code>IP:port</code>, không cho biết bên kia là <code>v3</code>. Ngay sau khi nối, hai bên gửi HELLO cho nhau (đây là hàm <code>handshake</code> đưa vào transport):</p>
+  <div class="seq" style="margin-top:10px">
+    <div class="actor">v3 (outbound, id lớn)</div><div></div><div class="actor">v1 (inbound, id nhỏ)</div>
+    <div class="side">open_connection</div><div class="msg r"><span>TCP SYN / SYN-ACK / ACK</span></div><div class="side">start_server nhận</div>
+    <div></div><div class="msg r"><span><code>HELLO{v3, lab01, sig}</code></span></div><div class="side">kiểm chữ ký, chain_id, có trong validator set</div>
+    <div class="side">kiểm tương tự</div><div class="msg l"><span><code>HELLO{v1, lab01, sig}</code></span></div><div></div>
+    <div class="side">handshake trả <code>"v1"</code></div><div class="msg"><span class="ok">✓ cả hai _attach(...) xong</span></div><div class="side">handshake trả <code>"v3"</code></div>
+  </div>
+  <table style="margin-top:12px">
+    <tr><th>Lý do từ chối</th><th>Khi nào</th></tr>
+    <tr><td><code>bad_signature</code></td><td>chữ ký sai, hoặc ký với domain khác <code>HELLO:lab01</code></td></tr>
+    <tr><td><code>wrong_chain</code></td><td>node của chain khác (ví dụ nhóm khác dùng nhầm port)</td></tr>
+    <tr><td><code>unknown_peer</code></td><td><code>node_id</code> không có trong danh sách validator</td></tr>
+    <tr><td><code>self_connect</code></td><td>nối nhầm vào chính mình (config ghi sai địa chỉ)</td></tr>
+    <tr><td><code>handshake_timeout</code></td><td>quá 2 giây không nhận được HELLO</td></tr>
+  </table>
+</div>
+
+<!-- 4 -->
+<h2 id="tcp">4. TCP transport: bên trong <code>tcp_transport.py</code></h2>
+<p class="sub">Đã viết xong (bản tối giản), 12 test đều pass. Mỗi peer chỉ có 1 coroutine: vòng đọc. Gửi là một lệnh <code>write()</code>.</p>
+<div class="grid g2">
+  <div class="card">
+    <h3>Một kết nối tới peer</h3>
+<pre>_writers["v3"] = writer      _tasks["v3"] = _read_loop
+ reader ──► _read_loop:  read_frame() → receiver("v3", data)
+ send("v3", data) ──► writer.write(frame(data))   (trả về ngay)</pre>
+    <ul>
+      <li><code>write()</code> chạy đồng bộ, đưa <b>nguyên cả frame</b> vào buffer một lần. asyncio chỉ có 1 thread, nên các frame không bao giờ xen lẫn nhau.</li>
+      <li><code>send()</code> không chờ: peer chậm không làm treo consensus. Buffer gửi vượt 4 MB thì bỏ message và ghi log.</li>
+      <li>Lỗi trong <code>receiver</code> chỉ ghi log; kết nối vẫn giữ.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Các API</h3>
+    <table>
+      <tr><td><code>start()</code></td><td>mở cổng lắng nghe</td></tr>
+      <tr><td><code>connect(addr)</code></td><td>nối + HELLO, trả <code>peer_id</code> hoặc <code>None</code></td></tr>
+      <tr><td><code>send(peer, data)</code></td><td>ghi frame vào buffer của peer</td></tr>
+      <tr><td><code>close(peer)</code></td><td>đóng kết nối, báo disconnect</td></tr>
+      <tr><td><code>peers()</code></td><td>danh sách peer đang nối, đã sắp xếp</td></tr>
+      <tr><td><code>stop()</code></td><td>đóng hết, không báo disconnect</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>Ai chủ động nối: id lớn nối tới id nhỏ</h3>
+    <p>Ví dụ <code>v3</code> nối tới <code>v0, v1, v2</code>, còn <code>v4..v9</code> nối tới <code>v3</code>. Một cặp node không bao giờ cùng mở kết nối tới nhau.</p>
+    <p>Nếu vẫn có kết nối mới tới peer đã nối (peer khởi động lại rồi nối lại), <b>kết nối mới thay kết nối cũ</b> và không báo disconnect.</p>
+<pre>v3 ──► v0, v1, v2
+v4..v9 ──► v3</pre>
+  </div>
+  <div class="card">
+    <h3>Mất kết nối</h3>
+    <p>Peer đóng, rớt mạng, hoặc gửi frame &gt; 4 MB → <code>_drop()</code>:
+    xoá khỏi bảng, huỷ vòng đọc, đóng socket, rồi gọi <code>disconnect_handler(peer)</code> <b>đúng một lần</b>.
+    Transport không tự nối lại; vòng thử lại của StaticPeers lo việc đó.</p>
+  </div>
+</div>
+
+<!-- 5 -->
+<h2 id="frame">5. Thử framing: vì sao cần 4 byte độ dài</h2>
+<p class="sub">TCP là một dòng bytes liền mạch, không giữ ranh giới message. Gõ 2 message, bấm "Gửi qua TCP":
+dòng bytes sẽ bị cắt ngẫu nhiên thành nhiều mảnh như ngoài đời, rồi bên nhận ghép lại nhờ header.</p>
+<div class="card">
+  <div class="grid g2">
+    <div><label class="sl">Message 1</label><input type="text" id="m1" value="VOTE h=5"></div>
+    <div><label class="sl">Message 2</label><input type="text" id="m2" value="BLOCK #5"></div>
+  </div>
+  <div class="row"><button class="pri" id="sendFrames">Gửi qua TCP</button><span class="pill">vàng = header 4 byte</span><span class="pill">xanh / tím = nội dung</span></div>
+  <div style="margin-top:12px"><b style="font-size:13.5px">Bên gửi:</b> <code>frame(m1) + frame(m2)</code></div>
+  <div class="bytes" id="wire"></div>
+  <div style="margin-top:12px"><b style="font-size:13.5px">Bên nhận nhận được theo từng mảnh</b> <span class="sub" style="font-size:12.5px">(dấu │ đỏ = chỗ TCP cắt)</span></div>
+  <div class="bytes" id="chunks"></div>
+  <div style="margin-top:12px"><b style="font-size:13.5px">read_frame() ghép lại:</b></div>
+  <div class="parsed" id="parsed"></div>
+</div>
+
+<!-- 6 -->
+<h2 id="gossip">6. Gossip: lan message khắp mạng</h2>
+<div class="grid g2">
+  <div class="card">
+    <h3>Flooding có dedup</h3>
+<pre>on_bytes(from_peer, data):
+    msg = decode(data)
+    mid = sha256(data)            # message_id
+    if mid in seen: return        # đã thấy → bỏ, KHÔNG chuyển tiếp
+    seen.add(mid)
+    if not verify(msg): log(reject); return
+    for p in peers() - {from_peer}:
+        send(p, data)             # chuyển tiếp
+    deliver(msg)                  # đưa lên consensus</pre>
+    <p>Mỗi node nhận được cùng một message nhiều lần (từ nhiều peer), nhưng chỉ <b>xử lý và chuyển tiếp lần đầu</b>.
+    Thiếu dòng <code>if mid in seen</code> thì message lặp vô tận.</p>
+  </div>
+  <div class="card">
+    <h3>HEADER trước, BODY sau (đề mục 6)</h3>
+    <div class="seq" style="margin-top:6px">
+      <div class="actor">proposer</div><div></div><div class="actor">node X</div>
+      <div></div><div class="msg r"><span><code>HEADER</code> (nhỏ, có chữ ký)</span></div><div class="side">gossip lan đi; kiểm proposer, chữ ký</div>
+      <div></div><div class="msg l"><span><code>BODY_REQUEST(hash)</code></span></div><div class="side">chấp nhận header thì mới xin</div>
+      <div></div><div class="msg r"><span><code>BODY</code> (danh sách tx)</span></div><div class="side">kiểm hash khớp header</div>
+    </div>
+    <p style="margin-top:10px">Lợi ích: header rác bị loại sớm, không tốn băng thông tải body. HEADER đi bằng gossip;
+    <code>BODY_REQUEST</code>/<code>BODY</code>, <code>GET_BLOCKS</code>/<code>BLOCKS</code> là <b>gửi thẳng 1-1</b>, không chuyển tiếp.</p>
+  </div>
+</div>
+<table style="margin-top:14px" class="card">
+  <tr><th>Loại message</th><th>Cách đi</th><th>Ai dùng</th></tr>
+  <tr><td><code>TX</code></td><td>gossip</td><td>mempool</td></tr>
+  <tr><td><code>HEADER</code></td><td>gossip</td><td>consensus (proposal)</td></tr>
+  <tr><td><code>PREVOTE</code>, <code>PRECOMMIT</code></td><td>gossip</td><td>consensus</td></tr>
+  <tr><td><code>BODY_REQUEST</code> → <code>BODY</code></td><td>1-1</td><td>lấy nội dung block</td></tr>
+  <tr><td><code>GET_BLOCKS</code> → <code>BLOCKS</code></td><td>1-1</td><td>node bị tụt lại bắt kịp</td></tr>
+</table>
+
+<!-- 7 -->
+<h2 id="sim">7. Mô phỏng gossip trên 10 node full mesh</h2>
+<p class="sub">Mỗi node nối với cả 9 node còn lại. Bấm một node để nó phát message, rồi bấm "Bước tiếp" để xem từng hop.
+Thử tăng tỉ lệ mất gói, rồi <b>tắt "Chuyển tiếp"</b>: không có chuyển tiếp thì cạnh bị drop là node đó mất message luôn;
+có chuyển tiếp thì message đi đường vòng qua node khác. Đổi lại, chuyển tiếp tạo ra rất nhiều bản trùng, và dedup bỏ hết chúng.</p>
+<div class="sim">
+  <div class="card">
+    <svg id="net" viewBox="0 0 520 440"></svg>
+    <div class="legend">
+      <span><i style="background:var(--code);border:1px solid var(--muted)"></i>chưa nhận</span>
+      <span><i style="background:var(--accent)"></i>vừa nhận (sẽ chuyển tiếp)</span>
+      <span><i style="background:var(--ok)"></i>đã nhận</span>
+      <span><i style="background:var(--bad)"></i>node tắt</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="row" style="margin-top:0">
+      <button class="pri" id="stepBtn" disabled>Bước tiếp</button>
+      <button id="runBtn" disabled>Chạy hết</button>
+      <button id="resetBtn">Làm lại</button>
+    </div>
+    <div class="row">
+      <label class="sl">Seed mất gói <input type="text" id="seed" value="lab01" style="width:90px"></label>
+      <label class="sl">Mất gói <input type="range" id="drop" min="0" max="60" value="0"> <span id="dropV">0%</span></label>
+    </div>
+    <div class="row">
+      <label class="sl"><input type="checkbox" id="fwd" checked> Chuyển tiếp (gossip)</label>
+      <label class="sl"><input type="checkbox" id="killMode"> Chế độ tắt node (bấm node để bật/tắt)</label>
+    </div>
+    <div class="stats">
+      <div><b id="sHop">0</b><small>hop</small></div>
+      <div><b id="sCov">0/10</b><small>đã nhận</small></div>
+      <div><b id="sSent">0</b><small>lần gửi</small></div>
+      <div><b id="sDup">0</b><small>trùng bị bỏ</small></div>
+    </div>
+    <div id="simLog">Bấm một node để phát message.</div>
+  </div>
+</div>
+
+<!-- 8 -->
+<h2 id="fault">8. Lỗi mạng giả lập và rate limit</h2>
+<p class="sub">Đề yêu cầu mạng có thể trễ, lặp, đảo thứ tự, mất gói. Mạng thật trên một máy gần như không bao giờ lỗi,
+nên ta tự chèn lỗi bằng một lớp bọc quanh <code>send</code>, dùng <code>random</code> có seed.</p>
+<div class="grid g3">
+  <div class="card"><h3>FaultInjector</h3>
+<pre>send(peer, data):
+  r = rng.random()
+  if r &lt; drop:    log(drop); return
+  d = rng.uniform(dmin, dmax)
+  call_later(d, transport.send, peer, data)
+  if rng.random() &lt; dup:
+      call_later(d+ε, transport.send, ...)</pre>
+  <p>Trễ khác nhau → tự sinh ra đảo thứ tự.</p></div>
+  <div class="card"><h3>Rate limit</h3>
+  <p>Mỗi peer có bộ đếm message/giây. Vượt ngưỡng → <code>block</code> peer đó vài giây (bỏ message từ nó), hết hạn → <code>unblock</code>.</p>
+  <p>Chặn một node Byzantine spam làm nghẽn cả mạng.</p></div>
+  <div class="card"><h3>Log sự kiện mạng</h3>
+  <p>Mọi <code>send</code>, <code>drop</code>, <code>delay</code>, <code>block</code>, <code>unblock</code> đều ghi kèm thời gian, node, loại message, height (đề mục 6).</p>
+<pre>{"t":1.204,"node":"v1","ev":"drop",
+ "kind":"PREVOTE","h":5,"to":"v3"}</pre></div>
+</div>
+<div class="note"><b>Lưu ý T8 (log giống hệt từng byte):</b> với TCP thật, thứ tự message đến phụ thuộc hệ điều hành, nên log mạng thô
+khó giống hệt giữa 2 lần chạy. Kế hoạch nhóm: so <code>logs/results/</code> (block đã chốt, state hash), không so log mạng thô. Nên xác nhận lại với thầy.</div>
+
+<!-- 9 -->
+<h2 id="test">9. Test và trạng thái</h2>
+<div class="grid g2">
+  <div class="card">
+    <h3>Tiến độ</h3>
+    <table>
+      <tr><td><code>tcp_transport.py</code></td><td class="ok">✓ xong, 12 test pass</td></tr>
+      <tr><td>HELLO (handshake thật)</td><td class="warn">chưa làm</td></tr>
+      <tr><td><code>gossip.py</code></td><td class="warn">chưa làm</td></tr>
+      <tr><td><code>static_peers.py</code> (đổi tên từ <code>discover.py</code>)</td><td class="warn">chưa làm</td></tr>
+      <tr><td>Multicast discovery (bậc 5, tuỳ chọn)</td><td class="warn">nếu còn thời gian</td></tr>
+      <tr><td>FaultInjector, rate limit</td><td class="warn">chưa làm</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>Test role C chịu trách nhiệm</h3>
+    <table>
+      <tr><td><b>T2</b></td><td>message lặp / đảo thứ tự → không đếm vote 2 lần (dedup ở gossip + consensus)</td></tr>
+      <tr><td><b>T5</b></td><td>mất / trễ gói trước GST → vẫn an toàn (FaultInjector)</td></tr>
+      <tr><td><b>D1</b></td><td>mọi node đủ 9 peer từ config, bật theo thứ tự nào cũng được (<span class="warn">cần chốt</span> với nhóm)</td></tr>
+      <tr><td><b>D2</b></td><td>tắt một node → các node khác log <code>peer_removed</code>, bật lại thì <code>peer_added</code>, chain vẫn chạy tiếp</td></tr>
+    </table>
+  </div>
+</div>
+
+</main>
+<script>
+// ---------- lifecycle ----------
+const LIFE = [
+  ["Đọc config", "biết hết 9 peer", "<p>Node đọc <code>network.peers</code>: <code>{\"v0\": \"127.0.0.1:9000\", ...}</code>. Validator set cố định, nên danh sách này biết trước. Không cần discovery.</p>"],
+  ["start()", "mở cổng TCP", "<p><code>transport.start()</code> gọi <code>asyncio.start_server</code> trên địa chỉ của mình. Từ giờ các node id lớn hơn có thể nối tới, và phải qua HELLO.</p>"],
+  ["Nối peer id nhỏ hơn", "id lớn nối id nhỏ", "<p>StaticPeers gọi <code>transport.connect(addr)</code> cho các peer có id nhỏ hơn mình. Ví dụ <code>v3</code> nối tới <code>v0, v1, v2</code>; còn <code>v4..v9</code> sẽ tự nối tới <code>v3</code>. Peer chưa bật thì thất bại, không sao.</p>"],
+  ["HELLO", "xác minh danh tính", "<p>Mỗi kết nối chạy hàm handshake: hai bên trao HELLO có chữ ký. Hợp lệ → <code>_attach</code> ghi writer vào bảng và chạy một vòng đọc cho peer đó. Log <code>peer_added</code>.</p>"],
+  ["Thử lại mỗi 1 s", "đến khi đủ 9 peer", "<p>Vòng lặp cứ mỗi giây kiểm tra: peer id nhỏ hơn nào chưa nối thì nối lại. Nhờ vậy thứ tự bật node không quan trọng, và node chết rồi bật lại cũng được nối lại.</p>"],
+  ["Gossip", "trao đổi message", "<p>Gossip dùng <code>peers()</code> và <code>send()</code> để lan TX, HEADER, vote. Consensus nhận qua callback. Mất peer → disconnect handler → log <code>peer_removed</code>, vòng thử lại lo nối lại.</p>"],
+];
+const lf = document.getElementById("lifeFlow"), ld = document.getElementById("lifeDetail");
+LIFE.forEach(([t, s, d], i) => {
+  const el = document.createElement("div");
+  el.className = "st"; el.innerHTML = `<span class="n">BƯỚC ${i + 1}</span><b>${t}</b><span>${s}</span>`;
+  el.onclick = () => { [...lf.children].forEach(c => c.classList.remove("on")); el.classList.add("on");
+    ld.innerHTML = `<h3>Bước ${i + 1}: ${t}</h3>${d}`; };
+  lf.appendChild(el);
+});
+lf.children[0].click();
+
+// ---------- framing ----------
+const enc = new TextEncoder();
+const hex = b => b.toString(16).padStart(2, "0");
+function framed(s, cls) {
+  const body = [...enc.encode(s)], n = body.length;
+  const head = [n >>> 24 & 255, n >>> 16 & 255, n >>> 8 & 255, n & 255];
+  return [...head.map(b => ({ b, c: "h" })), ...body.map(b => ({ b, c: cls }))];
+}
+function showFrames() {
+  const m1 = document.getElementById("m1").value, m2 = document.getElementById("m2").value;
+  const wire = [...framed(m1, "b"), ...framed(m2, "b2")];
+  document.getElementById("wire").innerHTML = wire.map(x => `<span class="${x.c}">${hex(x.b)}</span>`).join("");
+  // cắt ngẫu nhiên thành 3-4 mảnh
+  const cuts = new Set();
+  const k = 2 + Math.floor(Math.random() * 2);
+  while (cuts.size < Math.min(k, wire.length - 1)) cuts.add(1 + Math.floor(Math.random() * (wire.length - 1)));
+  const sorted = [...cuts].sort((a, b) => a - b);
+  let html = "", prev = 0, ci = 1;
+  [...sorted, wire.length].forEach(c => {
+    html += `<span class="pill" style="margin-right:2px">mảnh ${ci++}</span>` +
+      wire.slice(prev, c).map(x => `<span class="${x.c}">${hex(x.b)}</span>`).join("") +
+      (c < wire.length ? `<span class="cut">│</span>` : "");
+    prev = c;
+  });
+  document.getElementById("chunks").innerHTML = html;
+  // parse
+  const bytes = wire.map(x => x.b), dec = new TextDecoder(); let i = 0, out = "";
+  while (i + 4 <= bytes.length) {
+    const n = (bytes[i] << 24 | bytes[i + 1] << 16 | bytes[i + 2] << 8 | bytes[i + 3]) >>> 0;
+    const body = bytes.slice(i + 4, i + 4 + n);
+    out += `<div>đọc 4 byte <code>${bytes.slice(i, i + 4).map(hex).join(" ")}</code> → độ dài <b>${n}</b> → readexactly(${n}) → <b class="ok">"${dec.decode(new Uint8Array(body))}"</b></div>`;
+    i += 4 + n;
+  }
+  out += `<div class="sub" style="margin:4px 0 0;font-size:13px">Dù TCP cắt ở đâu, <code>readexactly</code> chờ đủ số byte rồi mới trả, nên luôn tách đúng 2 message.</div>`;
+  document.getElementById("parsed").innerHTML = out;
+}
+document.getElementById("sendFrames").onclick = showFrames;
+showFrames();
+
+// ---------- gossip simulator ----------
+const N = 10, IDS = [...Array(N)].map((_, i) => "v" + i);
+function fnv(s) { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; } return h; }
+function rngFrom(seed) { let x = fnv(seed) || 1; return () => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; }; }
+const POS = IDS.map((_, i) => { const a = -Math.PI / 2 + i * 2 * Math.PI / N; return [260 + 185 * Math.cos(a), 220 + 185 * Math.sin(a)]; });
+let edges = [], adj = [], dead = new Set(), st = null;
+
+function buildGraph() {   // full mesh: mọi cặp node đều nối nhau
+  adj = IDS.map((_, i) => new Set(IDS.map((_, j) => j).filter(j => j !== i)));
+  edges = []; adj.forEach((s, i) => s.forEach(j => { if (i < j) edges.push([i, j]); }));
+}
+(function dialTable() {
+  let h = "<tr><th>Node</th><th>Chủ động nối tới</th><th>Được nối từ</th></tr>";
+  for (const i of [0, 1, 3, 9]) {
+    const out = IDS.slice(0, i), inn = IDS.slice(i + 1);
+    h += `<tr><td><code>${IDS[i]}</code></td><td>${out.length ? out.join(", ") : "—"}</td><td>${inn.length ? inn.join(", ") : "—"}</td></tr>`;
+  }
+  document.getElementById("dialTable").innerHTML = h;
+})();
+function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function draw(flash = []) {
+  const svg = document.getElementById("net");
+  let h = "";
+  edges.forEach(([a, b]) => {
+    const f = flash.find(e => (e.from === a && e.to === b) || (e.from === b && e.to === a));
+    const col = f ? (f.kind === "drop" ? css("--bad") : f.kind === "dup" ? css("--muted") : css("--accent")) : css("--line");
+    const w = f ? 3 : 1.5, dash = f && f.kind === "drop" ? "5 4" : "";
+    h += `<line x1="${POS[a][0]}" y1="${POS[a][1]}" x2="${POS[b][0]}" y2="${POS[b][1]}" stroke="${col}" stroke-width="${w}" stroke-dasharray="${dash}"/>`;
+  });
+  IDS.forEach((id, i) => {
+    let fill = css("--code"), ink = css("--ink");
+    if (dead.has(i)) { fill = css("--bad"); ink = "#fff"; }
+    else if (st && st.frontier.has(i)) { fill = css("--accent"); ink = "#fff"; }
+    else if (st && st.seen.has(i)) { fill = css("--ok"); ink = "#fff"; }
+    h += `<g style="cursor:pointer" data-i="${i}"><circle cx="${POS[i][0]}" cy="${POS[i][1]}" r="24" fill="${fill}" stroke="${css("--muted")}" stroke-width="1"/>` +
+      `<text x="${POS[i][0]}" y="${POS[i][1] + 5}" text-anchor="middle" font-size="14" font-weight="700" fill="${ink}">${id}</text>` +
+      `<text x="${POS[i][0]}" y="${POS[i][1] + 40}" text-anchor="middle" font-size="10.5" fill="${css("--muted")}">${[...adj[i]].filter(j => !dead.has(j)).length} peer</text></g>`;
+  });
+  svg.innerHTML = h;
+  svg.querySelectorAll("g[data-i]").forEach(g => g.onclick = () => clickNode(+g.dataset.i));
+}
+function log(s) { const el = document.getElementById("simLog"); el.textContent += s + "\n"; el.scrollTop = el.scrollHeight; }
+function stats() {
+  document.getElementById("sHop").textContent = st ? st.hop : 0;
+  const alive = N - dead.size;
+  document.getElementById("sCov").textContent = `${st ? st.seen.size : 0}/${alive}`;
+  document.getElementById("sSent").textContent = st ? st.sent : 0;
+  document.getElementById("sDup").textContent = st ? st.dup : 0;
+  const busy = st && st.frontier.size > 0;
+  document.getElementById("stepBtn").disabled = !busy; document.getElementById("runBtn").disabled = !busy;
+}
+function clickNode(i) {
+  if (document.getElementById("killMode").checked) {
+    dead.has(i) ? dead.delete(i) : dead.add(i); st = null;
+    document.getElementById("simLog").textContent = `${IDS[i]} ${dead.has(i) ? "đã tắt" : "bật lại"}. Bấm một node đang sống để phát message.\n`;
+    draw(); stats(); return;
+  }
+  if (dead.has(i)) return;
+  st = { seen: new Set([i]), frontier: new Set([i]), from: new Map([[i, -1]]), hop: 0, sent: 0, dup: 0,
+         rng: rngFrom(document.getElementById("seed").value + "|drop") };
+  document.getElementById("simLog").textContent = "";
+  log(`hop 0: ${IDS[i]} phát message (mid=ab12…), seen={${IDS[i]}}`);
+  draw(); stats();
+}
+function step() {
+  if (!st || st.frontier.size === 0) return;
+  const drop = +document.getElementById("drop").value / 100;
+  const next = new Set(), flash = [], fwd = document.getElementById("fwd").checked;
+  st.hop++;
+  const lines = [];
+  for (const u of [...st.frontier].sort((a, b) => a - b)) {
+    for (const v of [...adj[u]].sort((a, b) => a - b)) {
+      if (v === st.from.get(u)) continue;      // không gửi ngược về người vừa gửi cho mình
+      st.sent++;
+      if (dead.has(v)) { lines.push(`  ${IDS[u]}→${IDS[v]}  ✗ node tắt`); continue; }
+      if (st.rng() < drop) { flash.push({ from: u, to: v, kind: "drop" }); lines.push(`  ${IDS[u]}→${IDS[v]}  ✗ drop`); continue; }
+      if (st.seen.has(v)) { st.dup++; flash.push({ from: u, to: v, kind: "dup" }); lines.push(`  ${IDS[u]}→${IDS[v]}  trùng, bỏ`); continue; }
+      st.seen.add(v); st.from.set(v, u); flash.push({ from: u, to: v, kind: "new" });
+      if (fwd) next.add(v);
+      lines.push(`  ${IDS[u]}→${IDS[v]}  ✓ mới${fwd ? " → chuyển tiếp" : ""}`);
+    }
+  }
+  st.frontier = next;
+  log(`hop ${st.hop}:\n` + lines.join("\n"));
+  if (next.size === 0) {
+    const alive = N - dead.size;
+    log(st.seen.size === alive ? `XONG: cả ${alive} node sống đều nhận đúng 1 lần.` :
+      `DỪNG: ${alive - st.seen.size} node sống chưa nhận${fwd ? "" : " (tắt chuyển tiếp nên cạnh bị drop là mất luôn)"}. Thực tế: vote gửi lại ở round sau, hoặc GET_BLOCKS để bắt kịp.`);
+  }
+  draw(flash); stats();
+}
+document.getElementById("stepBtn").onclick = step;
+document.getElementById("runBtn").onclick = () => { let k = 0; while (st && st.frontier.size && k++ < 50) step(); };
+document.getElementById("resetBtn").onclick = () => { st = null; dead.clear(); document.getElementById("simLog").textContent = "Bấm một node để phát message."; buildGraph(); draw(); stats(); };
+document.getElementById("seed").onchange = () => { st = null; draw(); stats(); };
+document.getElementById("drop").oninput = e => document.getElementById("dropV").textContent = e.target.value + "%";
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => draw());
+buildGraph(); draw(); stats();
+</script>
+</body>
+</html>
