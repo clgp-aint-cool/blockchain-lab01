@@ -177,3 +177,11 @@ Ngoài network chỉ sửa `devnet/` và `tests/integration/test_devnet.py`; kh�
 | `docs/ROLE_C_P2P.md`, `docs/ROLE_C_P2P_LITE.md` | "Step N" → "Bước N" (cả link mục lục). |
 
 Các file khác trong `docs/` vốn đã là tiếng Việt; thuật ngữ kỹ thuật (block, vote, gossip, proposer…) và câu trích đề bài trong `overview.html` giữ nguyên tiếng Anh. `CONTRIBUTING.md` (không phải file của C) chưa dịch.
+
+## Lần 7: viết lại `docs/p2p_network.html`
+
+Bản cũ còn ghi hello/gossip/static_peers "chưa làm" và dùng pseudo-code. Bản mới giải thích từng bước **cạnh code thật** (file + số dòng, dòng đang nói được tô vàng), trích tự động từ commit `f61a866`:
+
+1. Tổng quan 5 file, 2. khởi động & kết nối (11 bước), 3. HELLO + lý do từ chối, 4. framing (demo tương tác), 5. hành trình một VOTE từ engine V0 tới engine V5 (16 bước), 6. header trước body (devnet → A), 7. mô phỏng gossip 10 node, 8. event log + chỗ gắn FaultInjector, 9. bảng 38 unit test.
+
+Code sửa sau này thì số dòng trong HTML có thể lệch; sinh lại khi cần.
