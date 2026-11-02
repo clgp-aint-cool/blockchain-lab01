@@ -150,7 +150,6 @@ class TcpTransport:
         self._stopping = True
         if self._server is not None:
             self._server.close()
-            await self._server.wait_closed()
         writers = list(self._writers.values())
         tasks = list(self._tasks.values())
         for peer_id in list(self._writers):
@@ -161,6 +160,10 @@ class TcpTransport:
                 await writer.wait_closed()
             except (OSError, ConnectionError):
                 pass
+        # Python >= 3.12.1: wait_closed() chờ mọi kết nối đi vào đóng hẳn,
+        # nên phải đóng kết nối ở trên trước, không thì treo mãi.
+        if self._server is not None:
+            await self._server.wait_closed()
 
     # ---------- nội bộ ----------
 
