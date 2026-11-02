@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>L1 devnet</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --text:#e6e8ec; --muted:#8a92a3;
+          --ok:#3fb950; --bad:#f85149; --warn:#d29922; --propose:#58a6ff; --prevote:#d29922;
+          --precommit:#bc8cff; --dead:#484f58; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:16px; align-items:center; padding:10px 16px;
+           border-bottom:1px solid var(--line); background:var(--panel); }
+  header h1 { font-size:15px; margin:0 8px 0 0; }
+  .stat { color:var(--muted); } .stat b { color:var(--text); font-variant-numeric:tabular-nums; }
+  .badge { padding:3px 10px; border-radius:12px; font-weight:600; }
+  .badge.ok { background:#12361f; color:var(--ok); } .badge.bad { background:#3d1418; color:var(--bad); }
+  .controls { display:flex; gap:8px; align-items:center; margin-left:auto; flex-wrap:wrap; }
+  button { background:#21262d; color:var(--text); border:1px solid var(--line); border-radius:6px;
+           padding:5px 10px; cursor:pointer; font:inherit; }
+  button:hover { border-color:var(--muted); }
+  button.danger { color:var(--bad); } button.go { color:var(--ok); }
+  input[type=range] { width:90px; vertical-align:middle; }
+  main { display:grid; grid-template-columns:minmax(380px,1fr) minmax(420px,1.2fr); gap:12px; padding:12px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; min-width:0; }
+  section h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 8px; }
+  #ring { width:100%; height:auto; display:block; }
+  .legend { display:flex; gap:12px; flex-wrap:wrap; color:var(--muted); font-size:12px; margin-top:6px; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; vertical-align:-1px; }
+  table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+  th, td { padding:3px 6px; text-align:left; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--muted); font-weight:500; position:sticky; top:0; background:var(--panel); }
+  td.h { color:var(--muted); }
+  .hash { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; padding:1px 5px; border-radius:4px; color:#0f1115; }
+  .chainwrap { max-height:340px; overflow:auto; }
+  #nodes td.dead { color:var(--dead); }
+  .full { grid-column:1 / -1; }
+  #feed { height:260px; overflow:auto; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+  #feed div { white-space:nowrap; } #feed .t { color:var(--muted); }
+  #feed .finalize { color:var(--ok); } #feed .bad { color:var(--bad); } #feed .warn { color:var(--warn); }
+  .filters { display:flex; gap:8px; margin-bottom:6px; align-items:center; color:var(--muted); }
+  select, input[type=text], input[type=number] { background:#0d1117; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 6px; font:inherit; }
+  .form { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; }
+  .form label { color:var(--muted); }
+  code { background:#0d1117; padding:0 4px; border-radius:4px; }
+  .acc { color:var(--ok); } .rej { color:var(--bad); }
+  #toast { position:fixed; right:16px; bottom:16px; background:#21262d; border:1px solid var(--line); padding:8px 12px; border-radius:8px; opacity:0; transition:opacity .3s; max-width:420px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>L1 devnet</h1>
+  <span class="stat">n <b id="n">–</b> · f <b id="f">–</b> · quorum <b id="q">–</b></span>
+  <span class="stat">height đã finalize <b id="height">–</b></span>
+  <span class="stat">tx đã gửi <b id="txsent">0</b></span>
+  <span class="stat">msg bị drop <b id="dropped">0</b></span>
+  <span id="safety" class="badge ok">SAFETY OK</span>
+  <div class="controls">
+    <button onclick="post('/api/tx?n=1')">Gửi 1 tx</button>
+    <button onclick="post('/api/tx?n=5')">Gửi 5 tx</button>
+    <button onclick="post('/api/tx?n=50')">Gửi 50 tx</button>
+    <button onclick="post('/api/replay')">Replay tx cũ</button>
+    <label class="stat">drop <input id="drop" type="range" min="0" max="0.6" step="0.05" value="0"
+      oninput="dropv.textContent=this.value" onchange="post('/api/fault?drop='+this.value)"> <b id="dropv">0</b></label>
+    <label class="stat">delay ms <input id="delay" type="number" min="0" max="5000" step="50" value="0" style="width:70px"
+      onchange="post('/api/fault?delay='+this.value)"></label>
+  </div>
+</header>
+
+<main>
+  <section>
+    <h2>Mạng (bấm vào node để tắt / bật)</h2>
+    <svg id="ring" viewBox="0 0 440 400"></svg>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--propose)"></span>PROPOSE</span>
+      <span><span class="dot" style="background:var(--prevote)"></span>PREVOTE</span>
+      <span><span class="dot" style="background:var(--precommit)"></span>PRECOMMIT</span>
+      <span><span class="dot" style="background:var(--dead)"></span>đã tắt</span>
+      <span>★ proposer của round hiện tại</span>
+      <span>cạnh sáng/dày = nhiều message trong ~1 s</span>
+    </div>
+    <table id="nodes" style="margin-top:10px"></table>
+  </section>
+
+  <section>
+    <h2>Chain: mỗi ô là block hash mà node đó đã finalize (cùng màu = cùng block)</h2>
+    <div class="chainwrap"><table id="chain"></table></div>
+  </section>
+
+  <section>
+    <h2>Người dùng gửi tx (ghi key → value)</h2>
+    <div class="form">
+      <label>user <select id="tuser"></select></label>
+      <label>key <span class="stat" id="tprefix">u0/</span><input id="tkey" type="text" value="name" style="width:110px"></label>
+      <label>value <input id="tvalue" type="text" value="alice" style="width:110px"></label>
+      <label>gửi qua node <select id="tvia"><option value="">tự chọn</option></select></label>
+      <label>nonce <input id="tnonce" type="number" min="0" placeholder="tự động" style="width:80px"></label>
+      <label>ký bằng key của <select id="tsign"><option value="">chính user</option></select></label>
+      <label><input id="traw" type="checkbox"> key thô (không tự thêm "user/")</label>
+      <button class="go" onclick="sendCustom()">Gửi tx</button>
+    </div>
+    <div class="stat" style="margin-top:6px">Thử lỗi: đổi "ký bằng key của" sang user khác → <b>bad_signature</b>;
+      tick "key thô" rồi nhập <code>u1/x</code> với user u0 → <b>not_owner</b>; nhập nonce đã dùng → <b>bad_nonce</b>.</div>
+    <div id="tresult" class="chainwrap" style="max-height:160px;margin-top:8px"><table id="tlog"></table></div>
+  </section>
+
+  <section>
+    <h2>State của node <select id="kvnode"></select> <span class="stat" id="kvinfo"></span></h2>
+    <div class="chainwrap" style="max-height:300px"><table id="kv"></table></div>
+  </section>
+
+  <section class="full">
+    <h2>Event</h2>
+    <div class="filters">
+      node <select id="fnode"><option value="">tất cả</option></select>
+      event <input id="fevent" type="text" placeholder="vd: finalize, prevote, peer_">
+      <label><input id="fquiet" type="checkbox" checked> ẩn prevote/precommit</label>
+      <label><input id="fpause" type="checkbox"> tạm dừng</label>
+    </div>
+    <div id="feed"></div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let lastSeq = 0, prevTraffic = {}, nodesInit = false;
+const events = [];
+
+function hashColor(h) {
+  const hue = parseInt(h.slice(0, 6), 16) % 360;
+  return `hsl(${hue} 70% 65%)`;
+}
+function stepColor(n) {
+  if (!n.alive) return 'var(--dead)';
+  return {PROPOSE:'var(--propose)', PREVOTE:'var(--prevote)', PRECOMMIT:'var(--precommit)'}[n.step] || 'var(--muted)';
+}
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.style.opacity = 1;
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.style.opacity = 0, 2500);
+}
+async function post(url) {
+  const r = await fetch(url, {method:'POST'}); const j = await r.json();
+  if (Array.isArray(j)) toast(`đã gửi ${j.length} tx, nhận: ${j.filter(x => x.accepted).length}`);
+  else if ('accepted' in j) toast(`replay ${j.sender} nonce ${j.nonce} qua ${j.via}: ${j.accepted ? 'NHẬN (chưa vào chain?)' : 'BỊ TỪ CHỐI ✔'}`);
+  else toast(JSON.stringify(j));
+  refresh();
+}
+
+let formInit = false;
+const txLog = [];
+function initForm(s) {
+  if (formInit) return; formInit = true;
+  const opt = v => `<option value="${v}">${v}</option>`;
+  $('tuser').innerHTML = s.users.map(opt).join('');
+  $('tsign').innerHTML += s.users.map(opt).join('');
+  $('tvia').innerHTML += s.nodes.map(n => opt(n.id)).join('');
+  $('kvnode').innerHTML = s.nodes.map(n => opt(n.id)).join('');
+  const upd = () => { $('tprefix').textContent = $('traw').checked ? '' : $('tuser').value + '/'; };
+  $('tuser').addEventListener('change', upd); $('traw').addEventListener('change', upd);
+  $('kvnode').addEventListener('change', drawKv);
+}
+async function sendCustom() {
+  const user = $('tuser').value;
+  const key = ($('traw').checked ? '' : user + '/') + $('tkey').value;
+  const q = new URLSearchParams({user, key, value: $('tvalue').value, via: $('tvia').value,
+                                 nonce: $('tnonce').value, sign_as: $('tsign').value});
+  const r = await fetch('/api/tx/custom?' + q, {method:'POST'}); const j = await r.json();
+  if (j.error) { toast('lỗi: ' + j.error); return; }
+  txLog.unshift(j);
+  toast(`${j.sender} ${j.key}=${j.value} nonce ${j.nonce} qua ${j.via}: ${j.accepted ? 'NHẬN vào mempool' : 'BỊ TỪ CHỐI (' + j.reason + ')'}`);
+  $('tlog').innerHTML = '<tr><th>user</th><th>key</th><th>value</th><th>nonce</th><th>qua</th><th>kết quả</th></tr>' +
+    txLog.slice(0, 50).map(t => `<tr><td>${esc(t.sender)}</td><td>${esc(t.key)}</td><td>${esc(t.value)}</td><td>${t.nonce}</td><td>${t.via}</td>` +
+      `<td class="${t.accepted ? 'acc' : 'rej'}">${t.accepted ? 'nhận' : 'từ chối: ' + esc(t.reason)}</td></tr>`).join('');
+  refresh();
+}
+function esc(x) { return String(x).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+async function drawKv() {
+  const node = $('kvnode').value; if (!node) return;
+  const k = await fetch('/api/kv?node=' + node).then(r => r.json());
+  if (!k.alive) { $('kvinfo').textContent = '(đã tắt)'; $('kv').innerHTML = ''; return; }
+  $('kvinfo').textContent = `sau height ${k.height} · state_hash ${k.state_hash.slice(0, 8)}`;
+  const rows = Object.entries(k.data);
+  $('kv').innerHTML = '<tr><th>key</th><th>value</th></tr>' +
+    (rows.length ? rows.map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join('')
+                 : '<tr><td colspan="2" class="stat">chưa có tx nào vào chain</td></tr>') +
+    '<tr><th>user</th><th>nonce kế tiếp (on-chain)</th></tr>' +
+    Object.entries(k.nonces).map(([u, n]) => `<tr><td>${u}</td><td>${n}</td></tr>`).join('');
+}
+
+function drawRing(s) {
+  const W = 440, H = 400, cx = W / 2, cy = H / 2 - 5, R = Math.min(W, H) / 2 - 55;
+  const pos = {};
+  s.nodes.forEach((n, i) => {
+    const a = -Math.PI / 2 + 2 * Math.PI * i / s.nodes.length;
+    pos[n.id] = [cx + R * Math.cos(a), cy + R * Math.sin(a)];
+  });
+  const traffic = {};
+  for (const [a, b, c] of s.traffic) {
+    const k = a < b ? a + '|' + b : b + '|' + a;
+    traffic[k] = (traffic[k] || 0) + c - (prevTraffic[a + '>' + b] || 0);
+    prevTraffic[a + '>' + b] = c;
+  }
+  const maxT = Math.max(1, ...Object.values(traffic));
+  let svg = '';
+  const alive = new Set(s.nodes.filter(n => n.alive).map(n => n.id));
+  const drawn = new Set();
+  for (const n of s.nodes) for (const p of (n.peers || [])) {
+    const k = n.id < p ? n.id + '|' + p : p + '|' + n.id;
+    if (drawn.has(k) || !pos[p]) continue; drawn.add(k);
+    const t = (traffic[k] || 0) / maxT;
+    const [x1, y1] = pos[n.id], [x2, y2] = pos[p];
+    svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="hsl(210 80% ${35 + 35 * t}%)" stroke-width="${1 + 4 * t}" stroke-opacity="${0.35 + 0.65 * t}"/>`;
+  }
+  const curProposer = {};
+  for (const n of s.nodes) if (n.alive && n.proposer) curProposer[n.proposer] = true;
+  for (const n of s.nodes) {
+    const [x, y] = pos[n.id];
+    const label = n.alive ? `h${n.height} r${n.round}` : 'đã tắt';
+    svg += `<g style="cursor:pointer" onclick="toggleNode('${n.id}', ${n.alive})">
+      <circle cx="${x}" cy="${y}" r="24" fill="${stepColor(n)}" stroke="#0f1115" stroke-width="3"/>
+      <text x="${x}" y="${y + 5}" text-anchor="middle" font-weight="700" fill="#0f1115">${n.id}</text>
+      <text x="${x}" y="${y + 42}" text-anchor="middle" fill="var(--muted)" font-size="12">${label}</text>
+      ${curProposer[n.id] && n.alive ? `<text x="${x + 18}" y="${y - 16}" font-size="18" fill="#f2cc60">★</text>` : ''}
+    </g>`;
+  }
+  $('ring').innerHTML = svg;
+}
+
+function toggleNode(id, alive) {
+  if (confirm(`${alive ? 'Tắt' : 'Bật lại'} ${id}?`)) post(`/api/node/${id}/${alive ? 'stop' : 'start'}`);
+}
+
+function drawNodes(s) {
+  let h = '<tr><th>node</th><th>height</th><th>round</th><th>step</th><th>peers</th><th>mempool</th><th>state_hash</th></tr>';
+  for (const n of s.nodes) {
+    if (!n.alive || n.height === undefined) { h += `<tr><td class="dead">${n.id}</td><td class="dead" colspan="6">đã tắt</td></tr>`; continue; }
+    h += `<tr><td>${n.id}</td><td>${n.height}</td><td>${n.round}</td><td style="color:${stepColor(n)}">${n.step}</td>
+      <td>${n.peers.length}/${s.n - 1}</td><td>${n.mempool}</td>
+      <td><span class="hash" style="background:${hashColor(n.state_hash)}">${n.state_hash.slice(0, 8)}</span></td></tr>`;
+  }
+  $('nodes').innerHTML = h;
+  if (!nodesInit) {
+    for (const n of s.nodes) $('fnode').insertAdjacentHTML('beforeend', `<option>${n.id}</option>`);
+    nodesInit = true;
+  }
+}
+
+function drawChain(s) {
+  const heights = Object.keys(s.blocks).map(Number).sort((a, b) => b - a).slice(0, 40);
+  const bad = new Set(s.violations.map(v => v.height));
+  let h = '<tr><th>height</th>' + s.nodes.map(n => `<th>${n.id}</th>`).join('') + '<th>tx</th><th>round</th></tr>';
+  for (const ht of heights) {
+    const b = s.blocks[ht];
+    h += `<tr${bad.has(ht) ? ' style="outline:2px solid var(--bad)"' : ''}><td class="h">${ht}</td>`;
+    for (const n of s.nodes) {
+      const hs = b.by_node[n.id];
+      h += hs ? `<td><span class="hash" style="background:${hashColor(hs)}">${hs.slice(0, 6)}</span></td>` : '<td class="h">·</td>';
+    }
+    h += `<td>${b.txs}</td><td${b.round > 0 ? ' style="color:var(--warn)"' : ''}>${b.round}</td></tr>`;
+  }
+  $('chain').innerHTML = h;
+}
+
+function drawHeader(s) {
+  $('n').textContent = s.n; $('f').textContent = s.f; $('q').textContent = s.quorum;
+  const hs = Object.keys(s.blocks).map(Number);
+  $('height').textContent = hs.length ? Math.max(...hs) : 0;
+  $('txsent').textContent = s.tx_sent; $('dropped').textContent = s.faults.dropped;
+  const ok = s.violations.length === 0;
+  $('safety').className = 'badge ' + (ok ? 'ok' : 'bad');
+  $('safety').textContent = ok ? 'SAFETY OK' : `SAFETY VI PHẠM ở height ${s.violations.map(v => v.height).join(', ')}`;
+}
+
+const QUIET = new Set(['prevote', 'precommit', 'duplicate_ignored']);
+function cls(e) {
+  if (e.event === 'finalize') return 'finalize';
+  if (/rejected|failed|conflict|equivocation|refuse|error|malformed|violation|stopped/.test(e.event)) return 'bad';
+  if (/timeout|removed|lost|fault/.test(e.event)) return 'warn';
+  return '';
+}
+function fmt(e) {
+  const {seq, t_ms, event, node, ...rest} = e;
+  const extra = Object.entries(rest).map(([k, v]) => {
+    if (typeof v === 'string' && /^[0-9a-f]{64}$/.test(v)) v = v.slice(0, 8);
+    return `${k}=${v}`;
+  }).join(' ');
+  return `<div class="${cls(e)}"><span class="t">${(t_ms / 1000).toFixed(1).padStart(7)}s</span> ${node || ''} <b>${event}</b> ${extra}</div>`;
+}
+function drawFeed() {
+  if ($('fpause').checked) return;
+  const fn = $('fnode').value, fe = $('fevent').value.trim(), quiet = $('fquiet').checked;
+  const rows = events.filter(e => (!fn || e.node === fn) && (!fe || e.event.includes(fe)) && (!quiet || !QUIET.has(e.event)));
+  const feed = $('feed');
+  feed.innerHTML = rows.slice(-300).reverse().map(fmt).join('');
+}
+
+async function refresh() {
+  try {
+    const [s, ev] = await Promise.all([
+      fetch('/api/state').then(r => r.json()),
+      fetch('/api/events?after=' + lastSeq).then(r => r.json()),
+    ]);
+    for (const e of ev) { events.push(e); lastSeq = e.seq; }
+    if (events.length > 3000) events.splice(0, events.length - 3000);
+    initForm(s); drawKv();
+    drawHeader(s); drawRing(s); drawNodes(s); drawChain(s); drawFeed();
+  } catch (err) { toast('mất kết nối tới devnet: ' + err); }
+}
+['fnode', 'fevent', 'fquiet', 'fpause'].forEach(id => $(id).addEventListener('input', drawFeed));
+refresh(); setInterval(refresh, 1000);
+</script>
+</body>
+</html>
