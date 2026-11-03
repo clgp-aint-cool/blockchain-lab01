@@ -91,7 +91,7 @@ def test_peer_limits_unblock_after_block_duration_expires():
     assert ("unblock", {"peer": "peer1"}) in events
 
 
-def test_peer_limits_is_blocked_lazy_unblock():
+def test_peer_limits_is_blocked_pure_query_no_mutation_or_log():
     clock = FakeClock()
     events = []
     limits = PeerLimits(
@@ -107,8 +107,12 @@ def test_peer_limits_is_blocked_lazy_unblock():
     assert limits.is_blocked("peer1") is True
 
     clock.advance(3.1)
-    # is_blocked should lazily unblock
+    # is_blocked should return False without mutating or emitting log
     assert limits.is_blocked("peer1") is False
+    assert ("unblock", {"peer": "peer1"}) not in events
+
+    # on_receive cleans up expired block and emits unblock log
+    assert limits.on_receive("peer1") is True
     assert ("unblock", {"peer": "peer1"}) in events
 
 
@@ -228,8 +232,13 @@ def test_peer_limits_invalid_arguments():
         limits.unblock("")
 
 
-def test_peer_limits_properties():
+def test_peer_limits_properties_and_defaults():
     limits = PeerLimits(rate_limit=50, block_duration=12.5, out_rate_limit=75)
     assert limits.rate_limit == 50
     assert limits.block_duration == 12.5
     assert limits.out_rate_limit == 75
+
+    defaults = PeerLimits()
+    assert defaults.rate_limit == 1000
+    assert defaults.block_duration == 10.0
+    assert defaults.out_rate_limit == 1000

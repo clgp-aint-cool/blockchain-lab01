@@ -7,9 +7,9 @@ from collections import deque
 from collections.abc import Callable
 from typing import Any
 
-_DEFAULT_RATE = 100  # max messages per second per peer (inbound)
+_DEFAULT_RATE = 1000  # max messages per second per peer (inbound)
 _DEFAULT_BLOCK = 10.0  # seconds to block an overactive peer
-_DEFAULT_OUTRATE = 100  # max messages per second per peer (outbound)
+_DEFAULT_OUTRATE = 1000  # max messages per second per peer (outbound)
 
 
 class PeerLimits:
@@ -132,7 +132,7 @@ class PeerLimits:
         return True
 
     def is_blocked(self, peer_id: str) -> bool:
-        """Check if peer is currently blocked."""
+        """Check if peer is currently blocked (read-only query)."""
         if not isinstance(peer_id, str) or not peer_id:
             raise TypeError("peer_id must be a non-empty string")
 
@@ -140,13 +140,7 @@ class PeerLimits:
             return False
 
         now = self._now()
-        if now - self._blocked[peer_id] >= self._block_dur:
-            del self._blocked[peer_id]
-            if self._logger:
-                self._logger("unblock", peer=peer_id)
-            return False
-
-        return True
+        return (now - self._blocked[peer_id]) < self._block_dur
 
     def unblock(self, peer_id: str) -> None:
         """Explicitly unblock a peer."""
