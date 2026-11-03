@@ -68,6 +68,17 @@ Dùng cùng `--base-port` trên mọi node để đổi dải port local khi kh�
 
 Node chờ kết nối có HELLO hợp lệ tới đủ các peer, nạp tx của scenario rồi bắt đầu
 consensus sau `warmup_ms`. Kết thúc thành công khi finalize đủ `max_height`.
+
+Chờ **đủ mọi peer** là chủ ý, để kết quả tái lập được (T8): khi mọi node đã nối
+nhau trước block đầu tiên thì không node nào lỡ message, và `logs/results` giống
+từng byte giữa các lần chạy. Vì vậy thiếu một node lúc khởi động thì các node
+khác báo `timed out waiting for authenticated peers`, không phải lỗi consensus.
+Sau khi đã chạy, consensus vẫn chịu được tới f node hỏng (n = 10 thì f = 3).
+
+Mặc định mỗi node **tự nạp** tx của scenario vào mempool của mình, không gửi qua
+mạng, để mọi node có cùng tx trước block đầu tiên. Lệnh mặc định vì thế không
+kiểm tra đường tx qua mạng. Muốn kiểm tra client và tx gossip, xem mục
+"Gửi tx bằng client qua TCP" bên dưới (`--no-auto-txs` + `client --connect`).
 `--timeout 60` giới hạn riêng bước chờ peer và bước consensus, tính bằng giây;
 quá hạn trả exit code 1 và ghi kết quả hiện tại. Ctrl+C đóng kết nối và timer.
 
