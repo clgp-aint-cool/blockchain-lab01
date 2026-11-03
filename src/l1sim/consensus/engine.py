@@ -357,7 +357,15 @@ class ConsensusEngine:
     # ------------------------------------------------------------------ inputs
 
     def stop(self) -> None:
-        """Permanently stop consensus and cancel its pending timeout."""
+        """Permanently stop consensus and cancel its pending timeout.
+
+        Afterwards every input (``start_round``, ``on_proposal``, ``on_vote``,
+        ``on_timeout``) is ignored, and nothing more is signed or broadcast.
+        ``node.py`` calls this from ``on_finalize`` once ``max_height`` is
+        reached. In that case :meth:`_finalize` returns before moving on, so
+        :attr:`parent_hash` already points at the last block while
+        :attr:`height` stays at the height that was just finalized.
+        """
         self._stopped = True
         self._cancel_pending()
 
@@ -389,7 +397,7 @@ class ConsensusEngine:
         self._enter_round(round)
         self._progress()
 
-    def on_proposal(self, block: Block) -> None:
+    def on_proposal(self, block: Block) -> bool:
         """Handle a proposed block received from the network.
 
         The block is accepted into :attr:`proposals` only if all of these hold:
@@ -411,28 +419,33 @@ class ConsensusEngine:
 
         Args:
             block: The proposed block (header and transactions).
+
+        Returns:
+            ``True`` if the block was stored as the proposal for its slot.
+            ``False`` if it was ignored or rejected, or the engine is stopped.
         """
         if self._stopped:
-            return
+            return False
         header = block.header
         if header.height < self.height:
             self._log("ignored_old_height", kind="proposal", msg_height=header.height)
-            return
+            return False
 
         expected = proposer_for(self._validators, header.height, header.round)
         if header.proposer != expected:
             self._log("proposal_rejected", reason="bad_proposer", proposer=header.proposer)
-            return
+            return False
         if not verify(self._validator_keys[expected], Domain.HEADER, header, header.signature):
             self._log("proposal_rejected", reason="bad_signature", proposer=header.proposer)
-            return
+            return False
 
         if not self._store_proposal(block):
-            return
+            return False
         if header.height == self.height:
             self._progress()
+        return True
 
-    def on_vote(self, vote: Vote) -> None:
+    def on_vote(self, vote: Vote) -> bool:
         """Handle a PREVOTE or PRECOMMIT received from the network.
 
         Votes for finalized heights are ignored. Every other vote goes to
@@ -442,17 +455,25 @@ class ConsensusEngine:
         is added, the engine re-checks every rule, because that vote may complete
         a polka or a commit.
 
-        Logged events: ``vote_rejected`` (bad signature, wrong domain or unknown
-        voter), ``duplicate_ignored`` and ``equivocation_detected``.
+        Logged events: ``vote_rejected`` with a ``reason`` (``unknown_voter``,
+        ``wrong_domain`` or ``bad_signature``), ``duplicate_ignored`` and
+        ``equivocation_detected``.
 
         Args:
             vote: The received vote.
+
+        Returns:
+            ``True`` only if the vote was added (it counts, now or at a later
+            round or height). ``False`` for old, duplicate, equivocating or
+            invalid votes, or when the engine is stopped. The node uses this to
+            decide whether gossip forwards the vote: an equivocating vote still
+            reaches everyone, forwarded by the nodes that received it first.
         """
         if self._stopped:
-            return
+            return False
         if vote.height < self.height:
             self._log("ignored_old_height", kind="vote", msg_height=vote.height)
-            return
+            return False
 
         result = self.votes.add(vote)
         fields = {
@@ -467,9 +488,10 @@ class ConsensusEngine:
         elif result == EQUIVOCATION:
             self._log("equivocation_detected", **fields)
         elif result != ADDED:
-            self._log("vote_rejected", **fields)
+            self._log("vote_rejected", reason=self._vote_rejection(vote), **fields)
         elif vote.height == self.height:
             self._progress()
+        return result == ADDED
 
     def on_timeout(self, height: int, round: int, step: Step) -> None:
         """Handle a timeout scheduled earlier through ``schedule_timeout``.
@@ -686,8 +708,8 @@ class ConsensusEngine:
 
         self._store_proposal(block)
         self._log("propose", block_hash=block_hash(header), txs=len(block.txs))
-        # TODO(node.py): the lab spec requires header-before-body. node.py will split this
-        # into HEADER (gossiped) -> BODY_REQUEST -> BODY (sent only to the requester).
+        # The lab spec requires header-before-body: node.py turns this BODY into a gossiped
+        # HEADER and sends the body only in answer to a BODY_REQUEST.
         self._broadcast(Message(Kind.BODY, self.node_id, self.height, block))
 
     def _store_proposal(self, block: Block) -> bool:
@@ -826,6 +848,30 @@ class ConsensusEngine:
         self._enter_round(0)
 
     # ----------------------------------------------------------------- helpers
+
+    def _vote_rejection(self, vote: Vote) -> str:
+        """Explain why :meth:`VoteSet.add` rejected ``vote`` as invalid.
+
+        Only called on the rejection path, so a valid vote is still verified
+        once. ``wrong_domain`` means the voter did sign these bytes, but under
+        another domain (for example a TX signature replayed as a vote).
+
+        Args:
+            vote: A vote that ``VoteSet.add`` returned ``"invalid"`` for.
+
+        Returns:
+            ``"unknown_voter"``, ``"wrong_domain"`` or ``"bad_signature"``.
+        """
+        key = self._validator_keys.get(vote.voter)
+        if key is None:
+            return "unknown_voter"
+        if any(
+            verify(key, domain, vote, vote.signature)
+            for domain in Domain
+            if domain is not Domain.VOTE
+        ):
+            return "wrong_domain"
+        return "bad_signature"
 
     def _schedule(self, step: Step) -> None:
         """Replace the pending timeout with one for ``step`` in the current round.

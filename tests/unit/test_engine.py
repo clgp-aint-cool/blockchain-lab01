@@ -1,14 +1,15 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from l1sim.consensus.engine import ConsensusEngine, Step, TimeoutConfig, proposer_for
-from l1sim.crypto import verify
+from l1sim.crypto import sign, verify
 from l1sim.encoding import block_hash
 from l1sim.execution import Mempool, State
 from l1sim.logger import EventLogger
-from l1sim.models import GENESIS_HASH, Domain, Kind, Message, Phase
+from l1sim.models import GENESIS_HASH, Domain, Kind, Message, Phase, Vote
 from tests.unit.consensus_harness import TIMEOUTS, Network, sample_txs
 
 CONFIG = Path(__file__).resolve().parents[2] / "config" / "default.json"
@@ -374,3 +375,97 @@ def test_engine_logs_through_event_logger(tmp_path):
     assert [record["event"] for record in records][:3] == ["new_round", "propose", "prevote"]
     assert all(record["node"] == "V1" for record in records)
     assert all(record["height"] == 1 and record["round"] == 0 for record in records)
+
+
+def _rejection_reasons(net, node):
+    return [fields["reason"] for event, fields in net.events[node] if event == "vote_rejected"]
+
+
+def test_on_vote_returns_true_only_for_counted_votes():
+    net = Network(4, drop=lambda src, dst, message: True)
+    net.start(only=["V0"])
+    engine = net.engines["V0"]
+    vote = net.make_vote("V2", Phase.PREVOTE, 1, 0, None)
+    conflicting = net.make_vote("V2", Phase.PREVOTE, 1, 0, "a" * 64)
+    future = net.make_vote("V3", Phase.PRECOMMIT, 4, 2, None)
+
+    assert engine.on_vote(vote) is True
+    assert engine.on_vote(vote) is False  # duplicate
+    assert engine.on_vote(conflicting) is False  # equivocation
+    assert engine.on_vote(future) is True  # kept until the engine gets there
+    assert {"duplicate_ignored", "equivocation_detected"} <= set(net.event_names("V0"))
+
+
+def test_on_vote_rejects_invalid_votes_with_a_reason():
+    net = Network(4, drop=lambda src, dst, message: True)
+    net.start(only=["V0"])
+    engine = net.engines["V0"]
+    vote = Vote(Phase.PREVOTE, 1, 0, None, "V2")
+    forged = replace(vote, signature=sign(net.keys["V3"].private_key, Domain.VOTE, vote))
+    tx_domain = replace(vote, signature=sign(net.keys["V2"].private_key, Domain.TX, vote))
+    stranger = Vote(Phase.PREVOTE, 1, 0, None, "V9")
+    stranger = replace(stranger, signature=sign(net.keys["V0"].private_key, Domain.VOTE, stranger))
+
+    assert engine.on_vote(forged) is False
+    assert engine.on_vote(tx_domain) is False
+    assert engine.on_vote(stranger) is False
+    assert _rejection_reasons(net, "V0") == ["bad_signature", "wrong_domain", "unknown_voter"]
+
+
+def test_on_proposal_returns_whether_the_block_was_stored():
+    net = Network(4, drop=lambda src, dst, message: True)
+    net.start(only=["V0"])
+    engine = net.engines["V0"]
+    proposer = proposer_for(net.ids, 1, 0)
+    forger = next(node for node in net.ids if node not in (proposer, "V0"))
+    forged = net.make_block(proposer, 1, 0, parent_hash=GENESIS_HASH, signer=forger)
+    block = net.make_block(proposer, 1, 0, sample_txs()[:1], parent_hash=GENESIS_HASH)
+    conflicting = net.make_block(proposer, 1, 0, sample_txs()[:2], parent_hash=GENESIS_HASH)
+    wrong_proposer = net.make_block(forger, 1, 0, parent_hash=GENESIS_HASH)
+
+    assert engine.on_proposal(forged) is False
+    assert engine.on_proposal(wrong_proposer) is False
+    assert engine.on_proposal(block) is True
+    assert engine.on_proposal(block) is False  # same proposal again
+    assert engine.on_proposal(conflicting) is False
+
+
+def test_stop_ignores_every_input_and_cancels_the_pending_timeout():
+    net = Network(4, drop=lambda src, dst, message: True)
+    net.start(only=["V0"])
+    engine = net.engines["V0"]
+    proposer = proposer_for(net.ids, 1, 0)
+    assert proposer != "V0"  # V0 waits in PROPOSE with a timeout pending
+    pending = engine._timeout_handle
+    before = (engine.height, engine.round, engine.step, len(net.sent), len(net.events["V0"]))
+
+    engine.stop()
+
+    assert pending.cancelled
+    block = net.make_block(proposer, 1, 0, parent_hash=GENESIS_HASH)
+    assert engine.on_proposal(block) is False
+    assert engine.on_vote(net.make_vote("V2", Phase.PREVOTE, 1, 0, None)) is False
+    engine.on_timeout(1, 0, Step.PROPOSE)
+    engine.start_round(1)
+    net.clock.run(lambda: False, max_ms=30_000)
+    after = (engine.height, engine.round, engine.step, len(net.sent), len(net.events["V0"]))
+    assert after == before
+
+
+def test_stop_inside_on_finalize_keeps_the_finalized_height():
+    net = Network(4, txs=sample_txs())
+    engine = net.engines["V0"]
+    record = engine._on_finalize
+
+    def finalize_then_stop(block, certificate):
+        record(block, certificate)
+        engine.stop()
+
+    engine._on_finalize = finalize_then_stop
+    net.start()
+
+    assert net.run_until_height(3, nodes=["V1", "V2", "V3"])
+    ((block, _),) = net.finalized["V0"]
+    assert engine.height == 1
+    assert engine.parent_hash == block_hash(block.header)
+    assert all(vote.height == 1 for vote in net.votes_sent("V0"))
