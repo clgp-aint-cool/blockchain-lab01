@@ -13,7 +13,7 @@ from l1sim.config import GenesisConfig, ScenarioConfig
 from l1sim.consensus.engine import ConsensusEngine, Step, TimeoutConfig, proposer_for
 from l1sim.crypto import keypair_from_seed, verify
 from l1sim.encoding import block_hash, decode, encode, hash_with_domain
-from l1sim.execution import Mempool, State, validate_tx
+from l1sim.execution import Mempool, State, validate_pending_tx
 from l1sim.execution.validation import compute_tx_root
 from l1sim.logger import EventLogger, ResultWriter
 from l1sim.models import (
@@ -31,6 +31,8 @@ from l1sim.network.gossip import DIRECT, FLOOD, Gossip
 from l1sim.network.hello import handshake_fn
 from l1sim.network.static_peers import StaticPeers
 from l1sim.network.tcp_transport import TcpTransport, read_frame, write_frame
+
+BODY_KEEP_HEIGHTS = 20  # finalized bodies kept to answer BODY_REQUEST from slower peers
 
 BroadcastHandler = Callable[[Message], None]
 SendHandler = Callable[[str, Message], None]
@@ -165,9 +167,7 @@ class Node:
         if self.completed.is_set():
             return "max_height_reached"
         # Future nonces may arrive out of order; Mempool.take selects only executable txs.
-        pending_state = self.state.copy()
-        pending_state.nonces[tx.sender] = max(self.state.get_nonce(tx.sender), tx.nonce)
-        valid, reason = validate_tx(pending_state, tx, self.user_keys)
+        valid, reason = validate_pending_tx(self.state, tx, self.user_keys)
         if not valid:
             self._event_adapter("tx_rejected", reason=reason, sender=tx.sender, nonce=tx.nonce)
             return reason
@@ -268,9 +268,9 @@ class Node:
         if message.kind is Kind.TX:
             if not self._validate_pending_transaction(message.payload):
                 return False
-            self.mempool.add(message.payload)
             # Gossip forwards the original message, preserving origin and message_id.
-            return True
+            # A different tx with an already-used (sender, nonce) is refused and not flooded.
+            return self.mempool.add(message.payload)
         if message.kind is Kind.BODY:
             block = message.payload
             digest = block_hash(block.header)
@@ -286,23 +286,9 @@ class Node:
             self.engine.on_proposal(block)
             return True
         if message.kind is Kind.VOTE:
-            vote = message.payload
-            public_key = self.validator_keys.get(vote.voter)
-            reason = self._signature_reason(public_key, Domain.VOTE, vote)
-            if reason:
-                self._event_adapter(
-                    "vote_rejected",
-                    height=self.engine.height,
-                    reason=reason,
-                    voter=vote.voter,
-                    vote_height=vote.height,
-                    vote_round=vote.round,
-                    phase=vote.phase.value,
-                )
-                return False
-            valid = vote.height >= self.engine.height
-            self.engine.on_vote(vote)
-            return valid
+            # The engine verifies the vote once, logs vote_rejected with a reason, and
+            # returns True only for a vote it counts, so rejected votes are not forwarded.
+            return self.engine.on_vote(message.payload)
 
         self._event_adapter(
             "message_ignored",
@@ -346,10 +332,21 @@ class Node:
         self.state = self.engine.state
         self.finalized[block.header.height] = (block, certificate)
         self.mempool.purge_stale(self.state)
+        self._prune_bodies(block.header.height)
         self.write_result()
         if block.header.height >= self.scenario.max_height:
             self.completed.set()
             self.engine.stop()
+
+    def _prune_bodies(self, finalized_height: int) -> None:
+        """Forget headers and bodies older than the last BODY_KEEP_HEIGHTS heights.
+
+        Recent bodies are kept so a slower peer can still get them by BODY_REQUEST.
+        """
+        floor = finalized_height - BODY_KEEP_HEIGHTS
+        self._blocks = {d: b for d, b in self._blocks.items() if b.header.height > floor}
+        self._headers = {d: h for d, h in self._headers.items() if h.height > floor}
+        self._body_waiters = {d: w for d, w in self._body_waiters.items() if d in self._headers}
 
     def write_result(self) -> Path:
         """Write a canonical result summary for this node."""

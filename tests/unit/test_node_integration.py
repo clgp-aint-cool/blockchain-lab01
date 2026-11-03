@@ -1,14 +1,16 @@
 import asyncio
 import json
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
 from l1sim.client import build_scenario_transactions
 from l1sim.config import load_config
+from l1sim.crypto import keypair_from_seed, sign
 from l1sim.encoding import block_hash, decode, encode
 from l1sim.logger import EventLogger, ResultWriter
-from l1sim.models import BodyRequest, Kind
+from l1sim.models import BodyRequest, Domain, Kind, Message, Phase, Tx, Vote
 from l1sim.node import Node, NodeNetwork
 from l1sim.run_node import run_node
 from tests.unit.test_node import ROOT
@@ -315,3 +317,43 @@ def test_gossip_relays_transactions_and_bodies_across_multiple_hops(tmp_path, co
             await asyncio.gather(*(gossip.stop() for gossip in gossips.values()))
 
     asyncio.run(exercise())
+
+
+def test_receive_message_forwards_only_what_the_node_keeps(tmp_path, configs):
+    genesis, scenario = configs
+    node = make_node(tmp_path, configs)
+    tx = build_scenario_transactions(scenario)[0]
+    unsigned = Tx(tx.sender, tx.key, "conflicting value", tx.nonce)
+    user = keypair_from_seed(scenario.seed, tx.sender)
+    conflicting = replace(unsigned, signature=sign(user.private_key, Domain.TX, unsigned))
+
+    assert node.receive_message(Message(Kind.TX, "V1", 0, tx), "V1") is True
+    # Same (sender, nonce), different tx: the mempool keeps the first, gossip must not flood it.
+    assert node.receive_message(Message(Kind.TX, "V1", 0, conflicting), "V1") is False
+    assert len(node.mempool) == 1
+
+    validator = keypair_from_seed(scenario.seed, "V1")
+    vote = Vote(Phase.PREVOTE, 1, 0, None, "V1")
+    signed = replace(vote, signature=sign(validator.private_key, Domain.VOTE, vote))
+    tx_domain = replace(vote, signature=sign(validator.private_key, Domain.TX, vote))
+
+    assert node.receive_message(Message(Kind.VOTE, "V1", 1, signed), "V1") is True
+    assert node.receive_message(Message(Kind.VOTE, "V1", 1, signed), "V1") is False
+    assert node.receive_message(Message(Kind.VOTE, "V1", 1, tx_domain), "V1") is False
+    records = [json.loads(line) for line in node.logger.path.read_text().splitlines()]
+    rejected = [record for record in records if record["event"] == "vote_rejected"]
+    assert [record["reason"] for record in rejected] == ["wrong_domain"]
+
+
+def test_old_headers_and_bodies_are_pruned(tmp_path, configs):
+    node = make_node(tmp_path, configs)
+    node._headers = {"old": SimpleNamespace(height=1), "new": SimpleNamespace(height=25)}
+    node._blocks = {
+        "old": SimpleNamespace(header=SimpleNamespace(height=1)),
+        "new": SimpleNamespace(header=SimpleNamespace(height=25)),
+    }
+    node._body_waiters = {"old": {"V1"}, "new": {"V2"}}
+
+    node._prune_bodies(25)
+
+    assert set(node._headers) == set(node._blocks) == set(node._body_waiters) == {"new"}
