@@ -1,0 +1,460 @@
+"""Integration layer joining configuration, execution, logging, and consensus."""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+from l1sim.config import GenesisConfig, ScenarioConfig
+from l1sim.consensus.engine import ConsensusEngine, Step, TimeoutConfig, proposer_for
+from l1sim.crypto import keypair_from_seed, verify
+from l1sim.encoding import block_hash, decode, encode, hash_with_domain
+from l1sim.execution import Mempool, State, validate_tx
+from l1sim.execution.validation import compute_tx_root
+from l1sim.logger import EventLogger, ResultWriter
+from l1sim.models import (
+    Block,
+    BlockHeader,
+    BodyRequest,
+    CommitCertificate,
+    Domain,
+    Kind,
+    Message,
+    Tx,
+)
+from l1sim.network.faults import FaultInjector
+from l1sim.network.gossip import DIRECT, FLOOD, Gossip
+from l1sim.network.hello import handshake_fn
+from l1sim.network.static_peers import StaticPeers
+from l1sim.network.tcp_transport import TcpTransport, read_frame, write_frame
+
+BroadcastHandler = Callable[[Message], None]
+SendHandler = Callable[[str, Message], None]
+
+
+class Node:
+    """One validator node wired to the consensus and execution modules."""
+
+    def __init__(
+        self,
+        node_id: str,
+        genesis: GenesisConfig,
+        scenario: ScenarioConfig,
+        listen_addr: str = "127.0.0.1:9000",
+        advertise_addr: str | None = None,
+        logger: Any = None,
+        broadcast: BroadcastHandler | None = None,
+        loop: asyncio.AbstractEventLoop | None = None,
+        send_to: SendHandler | None = None,
+        result_writer: ResultWriter | None = None,
+        peer_addresses: dict[str, str] | None = None,
+    ) -> None:
+        if node_id not in genesis.validators:
+            raise ValueError(f"{node_id!r} is not a validator")
+        if node_id not in scenario.validators:
+            raise ValueError(f"{node_id!r} is not in the scenario validator list")
+        if (
+            genesis.validators != scenario.validators
+            or genesis.seed != scenario.seed
+            or genesis.chain_id != scenario.chain_id
+        ):
+            raise ValueError("scenario must match the genesis validator set, seed and chain")
+
+        self.node_id = node_id
+        self.genesis = genesis
+        self.scenario = scenario
+        self.listen_addr = listen_addr
+        self.advertise_addr = advertise_addr or listen_addr
+        self.loop = loop
+        self.peer_addresses = dict(
+            peer_addresses if peer_addresses is not None else scenario.network.peers
+        )
+        self.state = State()
+        self.mempool = Mempool()
+        self.finalized: dict[int, tuple[Block, CommitCertificate]] = {}
+        self._timeout_handles: list[Any] = []
+        self._started = False
+        self._stopped = False
+        self.completed = asyncio.Event()
+        self._blocks: dict[str, Block] = {}
+        self._headers: dict[str, BlockHeader] = {}
+        self._body_waiters: dict[str, set[str]] = {}
+
+        self.keypair = keypair_from_seed(scenario.seed, node_id)
+        self.validator_keys: dict[str, Ed25519PublicKey] = {
+            node: Ed25519PublicKey.from_public_bytes(bytes.fromhex(genesis.public_keys[node]))
+            for node in genesis.validators
+        }
+        if self.keypair.public_bytes.hex() != genesis.public_keys[node_id]:
+            raise ValueError("node signing key does not match genesis")
+        self.user_keys: dict[str, Ed25519PublicKey] = {
+            raw_tx["sender"]: keypair_from_seed(scenario.seed, raw_tx["sender"]).public_key
+            for raw_tx in scenario.transactions
+        }
+
+        self.logger = logger if logger is not None else EventLogger(node_id, scenario.name)
+        self._event_adapter = self._make_event_adapter(self.logger)
+        self.broadcast_handler = broadcast or (lambda message: None)
+        self.send_handler = send_to or (lambda peer, message: None)
+        self.result_writer = (
+            result_writer if result_writer is not None else ResultWriter(scenario.name)
+        )
+
+        consensus = {
+            "timeout_propose_ms": scenario.consensus.timeout_propose_ms,
+            "timeout_prevote_ms": scenario.consensus.timeout_prevote_ms,
+            "timeout_precommit_ms": scenario.consensus.timeout_precommit_ms,
+            "timeout_delta_ms": scenario.consensus.timeout_delta_ms,
+        }
+        self.timeouts = TimeoutConfig.from_config(consensus)
+        self.engine = ConsensusEngine(
+            node_id=node_id,
+            keypair=self.keypair,
+            validator_keys=self.validator_keys,
+            timeouts=self.timeouts,
+            state=self.state,
+            mempool=self.mempool,
+            max_txs_per_block=scenario.max_txs_per_block,
+            broadcast=self._broadcast,
+            schedule_timeout=self.schedule_timeout,
+            cancel_timeout=self.cancel_timeout,
+            on_finalize=self.on_finalize,
+            logger=self._event_adapter,
+            user_keys=self.user_keys,
+            start_height=1,
+        )
+
+    @staticmethod
+    def _make_event_adapter(logger: Any) -> Callable[..., None]:
+        def event(event: str, **fields: Any) -> None:
+            if hasattr(logger, "event") and callable(logger.event):
+                height = fields.pop("height", 0)
+                fields.pop("node", None)
+                logger.event(event, height=height, **fields)
+            else:
+                logger(event, **fields)
+
+        return event
+
+    def start(self) -> None:
+        """Start consensus after the network is ready."""
+        if self._started or self._stopped:
+            raise RuntimeError("a node can only be started once")
+        self.loop = self.loop or asyncio.get_running_loop()
+        self._started = True
+        self.engine.start()
+
+    def stop(self) -> None:
+        """Cancel pending timeouts and release node resources."""
+        self._stopped = True
+        self.engine.stop()
+        for handle in tuple(self._timeout_handles):
+            self.cancel_timeout(handle)
+        self._timeout_handles.clear()
+
+    def _pending_transaction_reason(self, tx: Tx) -> str | None:
+        """Check signatures and reject committed nonces, allowing future nonces."""
+        if not isinstance(tx, Tx):
+            raise TypeError("tx must be a Tx instance")
+        if self._stopped:
+            return "node_stopped"
+        if self.completed.is_set():
+            return "max_height_reached"
+        # Future nonces may arrive out of order; Mempool.take selects only executable txs.
+        pending_state = self.state.copy()
+        pending_state.nonces[tx.sender] = max(self.state.get_nonce(tx.sender), tx.nonce)
+        valid, reason = validate_tx(pending_state, tx, self.user_keys)
+        if not valid:
+            self._event_adapter("tx_rejected", reason=reason, sender=tx.sender, nonce=tx.nonce)
+            return reason
+        return None
+
+    def _validate_pending_transaction(self, tx: Tx) -> bool:
+        return self._pending_transaction_reason(tx) is None
+
+    def submit_transaction(self, tx: Tx, *, broadcast: bool = True) -> bool:
+        """Accept a local transaction and flood it once through Gossip."""
+        accepted, _ = self.submit_transaction_result(tx, broadcast=broadcast)
+        return accepted
+
+    def submit_transaction_result(self, tx: Tx, *, broadcast: bool = True) -> tuple[bool, str]:
+        """Return mempool acceptance and a stable rejection reason for client ingress."""
+        reason = self._pending_transaction_reason(tx)
+        if reason is not None:
+            return False, reason
+        added = self.mempool.add(tx)
+        if added and broadcast:
+            self._broadcast(Message(Kind.TX, self.node_id, self.engine.height, tx))
+        return added, "" if added else "duplicate"
+
+    def _broadcast(self, message: Message) -> None:
+        """Advertise proposal headers; send bodies only in response to requests."""
+        if self._stopped or self.completed.is_set():
+            return
+        if message.kind is Kind.BODY:
+            block = message.payload
+            self._blocks[block_hash(block.header)] = block
+            message = Message(Kind.HEADER, self.node_id, message.height, block.header)
+        self.broadcast_handler(message)
+
+    @staticmethod
+    def _signature_reason(public_key, domain: Domain, payload) -> str | None:
+        if public_key is None:
+            return "unknown_peer"
+        if verify(public_key, domain, payload, payload.signature):
+            return None
+        if any(
+            verify(public_key, other, payload, payload.signature)
+            for other in Domain
+            if other is not domain
+        ):
+            return "wrong_domain"
+        return "bad_signature"
+
+    def receive_message(self, message: Message, from_peer: str | None = None) -> bool:
+        """Route decoded messages; return whether Gossip should forward FLOOD messages."""
+        if not isinstance(message, Message):
+            raise TypeError("message must be a Message instance")
+        if self._stopped:
+            return False
+        peer = from_peer or message.origin
+        if peer not in self.validator_keys or message.origin not in self.validator_keys:
+            return False
+        if message.kind is Kind.BODY_REQUEST:
+            block = self._blocks.get(message.payload.block_hash)
+            if block is not None:
+                self.send_handler(
+                    peer, Message(Kind.BODY, self.node_id, block.header.height, block)
+                )
+                return True
+            if message.payload.block_hash in self._headers:
+                self._body_waiters.setdefault(message.payload.block_hash, set()).add(peer)
+                return True
+            return False
+        if self.completed.is_set():
+            return False
+        if message.kind is not Kind.TX and not 1 <= message.height <= self.scenario.max_height:
+            return False
+
+        if message.kind is Kind.HEADER:
+            header = message.payload
+            digest = block_hash(header)
+            public_key = self.validator_keys.get(header.proposer)
+            reason = self._signature_reason(public_key, Domain.HEADER, header)
+            if header.height < self.engine.height:
+                reason = "old_height"
+            elif header.proposer != proposer_for(self.validator_keys, header.height, header.round):
+                reason = reason or "bad_proposer"
+            if reason:
+                self._event_adapter(
+                    "header_rejected",
+                    msg_height=message.height,
+                    proposer=header.proposer,
+                    reason=reason,
+                )
+                return False
+            if digest not in self._blocks and digest not in self._headers:
+                self._headers[digest] = header
+                self.send_handler(
+                    peer,
+                    Message(Kind.BODY_REQUEST, self.node_id, message.height, BodyRequest(digest)),
+                )
+            return True
+
+        if message.kind is Kind.TX:
+            if not self._validate_pending_transaction(message.payload):
+                return False
+            self.mempool.add(message.payload)
+            # Gossip forwards the original message, preserving origin and message_id.
+            return True
+        if message.kind is Kind.BODY:
+            block = message.payload
+            digest = block_hash(block.header)
+            if (
+                self._headers.get(digest) != block.header
+                or compute_tx_root(block.txs) != block.header.tx_root
+            ):
+                self._event_adapter("body_rejected", msg_height=message.height, block_hash=digest)
+                return False
+            self._blocks[digest] = block
+            for waiter in sorted(self._body_waiters.pop(digest, set())):
+                self.send_handler(waiter, Message(Kind.BODY, self.node_id, message.height, block))
+            self.engine.on_proposal(block)
+            return True
+        if message.kind is Kind.VOTE:
+            vote = message.payload
+            public_key = self.validator_keys.get(vote.voter)
+            reason = self._signature_reason(public_key, Domain.VOTE, vote)
+            if reason:
+                self._event_adapter(
+                    "vote_rejected",
+                    height=self.engine.height,
+                    reason=reason,
+                    voter=vote.voter,
+                    vote_height=vote.height,
+                    vote_round=vote.round,
+                    phase=vote.phase.value,
+                )
+                return False
+            valid = vote.height >= self.engine.height
+            self.engine.on_vote(vote)
+            return valid
+
+        self._event_adapter(
+            "message_ignored",
+            kind=message.kind.value,
+            origin=message.origin,
+            msg_height=message.height,
+        )
+        return False
+
+    def schedule_timeout(
+        self,
+        delay_ms: int,
+        height: int,
+        round: int,
+        step: Step,
+    ) -> Any:
+        """Schedule an engine timeout through asyncio."""
+        if self._stopped or self.completed.is_set() or height > self.scenario.max_height:
+            return None
+
+        def fire() -> None:
+            if handle in self._timeout_handles:
+                self._timeout_handles.remove(handle)
+            if not self._stopped and not self.completed.is_set():
+                self.engine.on_timeout(height, round, step)
+
+        loop = self.loop or asyncio.get_running_loop()
+        handle = loop.call_later(delay_ms / 1000.0, fire)
+        self._timeout_handles.append(handle)
+        return handle
+
+    def cancel_timeout(self, handle: Any) -> None:
+        """Cancel an asyncio timeout handle."""
+        if handle is not None and hasattr(handle, "cancel"):
+            handle.cancel()
+        if handle in self._timeout_handles:
+            self._timeout_handles.remove(handle)
+
+    def on_finalize(self, block: Block, certificate: CommitCertificate) -> None:
+        """Record a finalized block and write the node result."""
+        self.state = self.engine.state
+        self.finalized[block.header.height] = (block, certificate)
+        self.mempool.purge_stale(self.state)
+        self.write_result()
+        if block.header.height >= self.scenario.max_height:
+            self.completed.set()
+            self.engine.stop()
+
+    def write_result(self) -> Path:
+        """Write a canonical result summary for this node."""
+        finalized_heights = sorted(self.finalized)
+        return self.result_writer.write_node(
+            self.node_id,
+            {
+                "node_id": self.node_id,
+                "chain_id": self.scenario.chain_id,
+                "finalized_height": max(finalized_heights, default=0),
+                "state_hash": self.engine.state.state_hash(),
+                "block_hashes": [
+                    certificate.block_hash
+                    for _, certificate in (self.finalized[h] for h in finalized_heights)
+                ],
+            },
+        )
+
+
+class NodeNetwork:
+    """Wire C's authenticated TCP, static peer manager, and Gossip to one node."""
+
+    def __init__(self, node: Node) -> None:
+        self.node = node
+        self.active = asyncio.Event()
+        self.transactions_ready = asyncio.Event()
+        self.transport = TcpTransport(node.node_id, node.listen_addr, logger=node._event_adapter)
+        self.transport.set_handshake(
+            handshake_fn(
+                node.node_id,
+                node.keypair.private_key,
+                node.validator_keys,
+                advertise_addr=lambda: node.advertise_addr,
+                finalized_height=lambda: max(node.finalized, default=0),
+                allow_client_txs=True,
+            )
+        )
+        self.transport.set_client_handler(self._serve_client)
+        self.gossip = Gossip(node.node_id, self.transport, logger=node._event_adapter)
+        # A4 prepares the injector; binding gossip.sender belongs to task 9 (C + B).
+        self.fault_injector = FaultInjector(
+            node.scenario.seed,
+            node.scenario.network,
+            logger=node._event_adapter,
+            timeout_base_ms=min(
+                node.scenario.consensus.timeout_propose_ms,
+                node.scenario.consensus.timeout_prevote_ms,
+                node.scenario.consensus.timeout_precommit_ms,
+            ),
+            timeout_delta_ms=node.scenario.consensus.timeout_delta_ms,
+        )
+        self.peers = StaticPeers(
+            node.node_id,
+            node.peer_addresses,
+            self.transport,
+            logger=node._event_adapter,
+            retry=0.1,
+        )
+        for kind in FLOOD | DIRECT:
+            self.gossip.on(kind, self._receive)
+        node.broadcast_handler = self.gossip.broadcast_nowait
+        node.send_handler = self.gossip.send_to_nowait
+
+    async def _receive(self, message: Message, from_peer: str) -> bool:
+        # Gossip keeps the pending messages until consensus is explicitly activated.
+        await (self.transactions_ready if message.kind is Kind.TX else self.active).wait()
+        return self.node.receive_message(message, from_peer)
+
+    async def _serve_client(self, reader, writer, first_frame: bytes) -> None:
+        # Wait for gossip links before acknowledging an injected transaction.
+        await asyncio.wait_for(self.transactions_ready.wait(), timeout=10)
+        data = first_frame
+        while True:
+            message = decode(data)
+            if message.kind is not Kind.TX:
+                await write_frame(
+                    writer, encode({"accepted": False, "reason": "expected_tx", "tx_id": ""})
+                )
+                return
+            tx = message.payload
+            accepted, reason = self.node.submit_transaction_result(tx)
+            result = {"accepted": accepted, "reason": reason, "tx_id": hash_with_domain("TX", tx)}
+            self.node._event_adapter("client_tx", height=self.node.engine.height, **result)
+            await asyncio.wait_for(write_frame(writer, encode(result)), timeout=10)
+            data = await asyncio.wait_for(read_frame(reader), timeout=10)
+
+    async def start(self) -> None:
+        # Install StaticPeers' inbound filter before accepting TCP connections.
+        await self.peers.start()
+        await self.transport.start()
+
+    async def wait_ready(self) -> None:
+        expected = set(self.node.peer_addresses) - {self.node.node_id}
+        while not expected.issubset(self.transport.peers()):
+            await asyncio.sleep(0.02)
+        self.transactions_ready.set()
+
+    def activate(self) -> None:
+        self.active.set()
+
+    async def close(self) -> None:
+        try:
+            await self.peers.stop()
+        finally:
+            try:
+                await self.transport.stop()
+            finally:
+                await self.gossip.stop()

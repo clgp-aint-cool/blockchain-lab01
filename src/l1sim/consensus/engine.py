@@ -352,8 +352,14 @@ class ConsensusEngine:
         self._validity: dict[str, bool] = {}
         self._waiting_logged: set[str] = set()
         self._timeout_handle: Any = None
+        self._stopped = False
 
     # ------------------------------------------------------------------ inputs
+
+    def stop(self) -> None:
+        """Permanently stop consensus and cancel its pending timeout."""
+        self._stopped = True
+        self._cancel_pending()
 
     def start(self) -> None:
         """Begin consensus at :attr:`height` by starting round 0.
@@ -378,6 +384,8 @@ class ConsensusEngine:
         Raises:
             ValueError: If ``round`` is lower than :attr:`round`.
         """
+        if self._stopped:
+            return
         self._enter_round(round)
         self._progress()
 
@@ -404,6 +412,8 @@ class ConsensusEngine:
         Args:
             block: The proposed block (header and transactions).
         """
+        if self._stopped:
+            return
         header = block.header
         if header.height < self.height:
             self._log("ignored_old_height", kind="proposal", msg_height=header.height)
@@ -438,6 +448,8 @@ class ConsensusEngine:
         Args:
             vote: The received vote.
         """
+        if self._stopped:
+            return
         if vote.height < self.height:
             self._log("ignored_old_height", kind="vote", msg_height=vote.height)
             return
@@ -477,6 +489,8 @@ class ConsensusEngine:
             round: Round the timeout was scheduled for.
             step: Step the timeout was scheduled for.
         """
+        if self._stopped:
+            return
         step = Step(step)
         if (height, round, step) != (self.height, self.round, self.step):
             return
@@ -568,7 +582,7 @@ class ConsensusEngine:
         never call this method themselves, which keeps the control flow flat and
         avoids re-entrant calls.
         """
-        while True:
+        while not self._stopped:
             if self._try_finalize():
                 continue
 
@@ -791,6 +805,8 @@ class ConsensusEngine:
         self._on_finalize(block, certificate)
 
         self.parent_hash = digest
+        if self._stopped:
+            return
         self.height = header.height + 1
         self.round = 0
         self.locked_block = None

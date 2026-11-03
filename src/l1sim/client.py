@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
+import json
+import math
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
-from l1sim.config import ConfigError, ScenarioConfig, load_scenario
+from l1sim.config import ConfigError, GenesisConfig, ScenarioConfig, load_config, load_scenario
 from l1sim.crypto import keypair_from_seed, sign
-from l1sim.encoding import encode
-from l1sim.models import Domain, Tx
+from l1sim.encoding import encode, hash_with_domain
+from l1sim.models import Domain, Kind, Message, Tx
+from l1sim.network.hello import HelloError, check_hello
+from l1sim.network.tcp_transport import FrameTooLarge, parse_addr, read_frame, write_frame
 
 TxHandler = Callable[[Tx], None]
 
@@ -132,15 +138,104 @@ def _print_transactions(scenario_path: str) -> int:
     return 0
 
 
+@dataclass(frozen=True)
+class SubmissionResult:
+    """A node's mempool acknowledgement, not a finalization certificate."""
+
+    tx_id: str
+    accepted: bool
+    reason: str
+
+
+async def send_transactions(
+    address: str,
+    transactions: Iterable[Tx],
+    genesis: GenesisConfig,
+    *,
+    timeout_s: float = 10.0,
+) -> tuple[SubmissionResult, ...]:
+    """Verify the server's HELLO, submit signed TX frames and await per-TX acknowledgements."""
+    if not math.isfinite(timeout_s) or timeout_s <= 0:
+        raise ValueError("timeout must be finite and positive")
+    host, port = parse_addr(address)
+    if not 1 <= port <= 65535:
+        raise ValueError("port must be between 1 and 65535")
+    reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout_s)
+    try:
+        validator_keys = {
+            node: Ed25519PublicKey.from_public_bytes(bytes.fromhex(key))
+            for node, key in genesis.public_keys.items()
+        }
+        # An empty self id cannot coincide with a valid validator identifier.
+        check_hello(await asyncio.wait_for(read_frame(reader), timeout_s), validator_keys, me="")
+        results = []
+        for tx in transactions:
+            if not isinstance(tx, Tx):
+                raise TypeError("transactions must contain Tx instances")
+            await asyncio.wait_for(
+                write_frame(writer, encode(Message(Kind.TX, tx.sender, 0, tx))), timeout_s
+            )
+            data = await asyncio.wait_for(read_frame(reader), timeout_s)
+            result = json.loads(data)
+            expected_id = hash_with_domain("TX", tx)
+            if (
+                not isinstance(result, dict)
+                or set(result) != {"tx_id", "accepted", "reason"}
+                or result["tx_id"] != expected_id
+                or type(result["accepted"]) is not bool
+                or not isinstance(result["reason"], str)
+                or encode(result) != data
+            ):
+                raise ValueError("invalid transaction acknowledgement")
+            results.append(SubmissionResult(**result))
+        return tuple(results)
+    finally:
+        writer.close()
+        try:
+            await asyncio.wait_for(writer.wait_closed(), timeout_s)
+        except (OSError, asyncio.TimeoutError):
+            writer.transport.abort()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build transactions from a Lab01 scenario")
     parser.add_argument("--scenario", required=True, help="scenario JSON file")
+    parser.add_argument("--connect", help="send signed transactions to a node at host:port")
+    parser.add_argument("--genesis", default="config/genesis.json", help="trusted validator keys")
+    parser.add_argument(
+        "--timeout", type=float, default=10, help="per-operation network timeout in seconds"
+    )
     args = parser.parse_args(argv)
     try:
+        if args.connect:
+            genesis, scenario = load_config(args.scenario, args.genesis)
+            results = asyncio.run(
+                send_transactions(
+                    args.connect,
+                    build_scenario_transactions(scenario),
+                    genesis,
+                    timeout_s=args.timeout,
+                )
+            )
+            for result in results:
+                print(encode(result).decode("utf-8"))
+            return 0 if all(result.accepted for result in results) else 1
         return _print_transactions(args.scenario)
     except ConfigError as exc:
         print(f"configuration error: {exc}", file=sys.stderr)
         return 1
+    except (
+        OSError,
+        ValueError,
+        HelloError,
+        FrameTooLarge,
+        asyncio.IncompleteReadError,
+        asyncio.TimeoutError,
+    ) as exc:
+        print(f"client error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 130
 
 
 if __name__ == "__main__":

@@ -71,3 +71,38 @@ def test_send_scenario_custom_private_key_signature_verifies():
 
     alice_tx = next(tx for tx in received if tx.sender == "Alice")
     assert verify(public_key, Domain.TX, alice_tx, alice_tx.signature)
+
+
+def test_client_cli_still_prints_without_connect(capsys):
+    import json
+
+    from l1sim.client import main
+
+    assert main(["--scenario", str(ROOT / "config/t1_normal.json")]) == 0
+    output = capsys.readouterr()
+    assert len([json.loads(line) for line in output.out.splitlines()]) == 20
+    assert not output.err
+
+
+def test_client_cli_connection_failure_has_nonzero_exit(capsys):
+    import socket
+
+    from l1sim.client import main
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        status = main(
+            [
+                "--scenario",
+                str(ROOT / "config/t1_normal.json"),
+                "--genesis",
+                str(ROOT / "config/genesis.json"),
+                "--connect",
+                f"127.0.0.1:{port}",
+                "--timeout",
+                "0.5",
+            ]
+        )
+    assert status == 1
+    assert "client error:" in capsys.readouterr().err

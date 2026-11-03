@@ -24,6 +24,7 @@ def test_load_default_scenario():
     assert scenario.chain_id == "lab01"
     assert scenario.num_validators == 10
     assert scenario.consensus.timeout_delta_ms == 300
+    assert scenario.network.peers == {f"V{i}": f"127.0.0.1:{9000 + i}" for i in range(10)}
 
 
 def test_config_rejects_wrong_chain_id(tmp_path):
@@ -131,4 +132,37 @@ def test_scenario_rejects_invalid_discovery_group(tmp_path):
     )
 
     with pytest.raises(ConfigError, match="multicast"):
+        load_scenario(path)
+
+
+def test_scenario_accepts_static_peer_addresses(tmp_path):
+    import json
+
+    raw = json.loads((ROOT / "config/t1_normal.json").read_text())
+    peers = {f"V{i}": f"10.147.17.{10 + i}:9000" for i in range(10)}
+    raw["network"]["peers"] = peers
+    path = tmp_path / "peers.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert load_scenario(path).network.peers == peers
+
+
+@pytest.mark.parametrize(
+    "peers",
+    [
+        [],
+        {"V0": "127.0.0.1:9000"},
+        {f"V{i}": "127.0.0.1:9000" for i in range(10)},
+        {f"V{i}": f"127.0.0.1:{70000 + i}" for i in range(10)},
+        {f"V{i}": i for i in range(10)},
+        {f"V{i}": f"localhost{i}" for i in range(10)},
+    ],
+)
+def test_scenario_rejects_invalid_static_peers(tmp_path, peers):
+    import json
+
+    raw = json.loads((ROOT / "config/t1_normal.json").read_text())
+    raw["network"]["peers"] = peers
+    path = tmp_path / "peers.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ConfigError, match="network.peers"):
         load_scenario(path)

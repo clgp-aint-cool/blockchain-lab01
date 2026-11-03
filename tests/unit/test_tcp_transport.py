@@ -49,7 +49,9 @@ async def _until(cond, timeout: float = 2.0) -> None:
 # ---------- framing ----------
 
 
-@pytest.mark.parametrize("payload", [b"", b"hello", b"x" * MAX_FRAME])
+@pytest.mark.parametrize(
+    "payload", [b"", b"hello", b"x" * MAX_FRAME], ids=["empty", "small", "max_frame"]
+)
 def test_frame_round_trip(payload):
     async def main():
         return await read_frame(_reader_with(frame(payload)))

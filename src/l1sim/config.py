@@ -5,7 +5,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +29,7 @@ class NetworkConfig:
     gst_height: int = 0
     delta_ms: int = 500
     target_degree: int = 4
+    peers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,10 +222,29 @@ def load_scenario(path: str | Path) -> ScenarioConfig:
         raise ConfigError(
             f"scenario has {len(byzantine)} Byzantine nodes; at most {expected_faulty} are allowed"
         )
-
     network_raw = raw.get("network", {})
     if not isinstance(network_raw, dict):
         raise ConfigError("network must be an object")
+    peers = network_raw.get("peers", {})
+    if not isinstance(peers, dict):
+        raise ConfigError("network.peers must be an object mapping validator ids to host:port")
+    if peers and set(peers) != set(validators):
+        raise ConfigError("network.peers must contain exactly the scenario validator ids")
+    for peer, address in peers.items():
+        if not isinstance(address, str):
+            raise ConfigError(f"network.peers[{peer}] must be a host:port string")
+        host, separator, port = address.rpartition(":")
+        if (
+            not separator
+            or not host
+            or any(char.isspace() for char in host)
+            or not port.isascii()
+            or not port.isdecimal()
+            or not 1 <= int(port) <= 65535
+        ):
+            raise ConfigError(f"network.peers[{peer}] must use host:port with port 1..65535")
+    if len(set(peers.values())) != len(peers):
+        raise ConfigError("network.peers addresses must be unique")
     network = NetworkConfig(
         min_delay_ms=_optional_int(network_raw, "min_delay_ms", 10),
         max_delay_ms=_optional_int(network_raw, "max_delay_ms", 200),
@@ -233,6 +253,7 @@ def load_scenario(path: str | Path) -> ScenarioConfig:
         gst_height=_optional_int(network_raw, "gst_height", 0),
         delta_ms=_optional_int(network_raw, "delta_ms", 500, 1),
         target_degree=_optional_int(network_raw, "target_degree", 4, 1),
+        peers=dict(peers),
     )
     if network.min_delay_ms > network.max_delay_ms:
         raise ConfigError("min_delay_ms cannot exceed max_delay_ms")

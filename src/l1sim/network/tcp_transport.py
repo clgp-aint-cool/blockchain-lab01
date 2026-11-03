@@ -24,6 +24,7 @@ import asyncio
 import logging
 import struct
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from l1sim.encoding import MAX_MESSAGE_BYTES
 from l1sim.network.events import emit
@@ -34,7 +35,18 @@ CONNECT_TIMEOUT = 2.0
 HANDSHAKE_TIMEOUT = 2.0
 MAX_BUFFER = 4 * 1024 * 1024  # peer đọc chậm tới mức buffer gửi vượt ngưỡng này thì bỏ message
 
-HandshakeFn = Callable[[asyncio.StreamReader, asyncio.StreamWriter, bool], Awaitable["str | None"]]
+
+@dataclass(frozen=True)
+class ClientSession:
+    """An inbound TX session, deliberately outside the validator peer table."""
+
+    first_frame: bytes
+
+
+HandshakeFn = Callable[
+    [asyncio.StreamReader, asyncio.StreamWriter, bool], Awaitable["str | ClientSession | None"]
+]
+ClientHandler = Callable[[asyncio.StreamReader, asyncio.StreamWriter, bytes], Awaitable[None]]
 ReceiverFn = Callable[[str, bytes], None]
 DisconnectFn = Callable[[str], None]
 InboundFilterFn = Callable[[str], bool]
@@ -89,6 +101,9 @@ class TcpTransport:
         self._receiver: ReceiverFn | None = None
         self._on_disconnect: list[DisconnectFn] = []
         self._inbound_filter: InboundFilterFn | None = None
+        self._client_handler: ClientHandler | None = None
+        self._client_tasks: set[asyncio.Task] = set()
+        self._client_writers: set[asyncio.StreamWriter] = set()
         self._stopping = False
 
     # ---------- cấu hình ----------
@@ -100,6 +115,10 @@ class TcpTransport:
     def set_receiver(self, callback: ReceiverFn) -> None:
         """callback(peer_id, data) cho mỗi frame nhận được sau handshake."""
         self._receiver = callback
+
+    def set_client_handler(self, callback: ClientHandler) -> None:
+        """Serve inbound TX sessions without registering or replacing validator peers."""
+        self._client_handler = callback
 
     def add_disconnect_handler(self, callback: DisconnectFn) -> None:
         """Thêm callback(peer_id), gọi khi mất kết nối tới peer. Không đè handler đã có."""
@@ -161,14 +180,22 @@ class TcpTransport:
             self._server.close()
         writers = list(self._writers.values())
         tasks = list(self._tasks.values())
+        client_tasks = list(self._client_tasks)
+        client_writers = list(self._client_writers)
+        for task in client_tasks:
+            task.cancel()
+        for writer in client_writers:
+            writer.close()
         for peer_id in list(self._writers):
             self._drop(peer_id, "stop", notify=False)
-        await asyncio.gather(*tasks, return_exceptions=True)
-        for writer in writers:
+        await asyncio.gather(*tasks, *client_tasks, return_exceptions=True)
+        for writer in writers + client_writers:
             try:
                 await writer.wait_closed()
             except (OSError, ConnectionError):
                 pass
+        self._client_tasks.clear()
+        self._client_writers.clear()
         # Python >= 3.12.1: wait_closed() chờ mọi kết nối đi vào đóng hẳn,
         # nên phải đóng kết nối ở trên trước, không thì treo mãi.
         if self._server is not None:
@@ -191,6 +218,15 @@ class TcpTransport:
             peer_id, reason = None, "handshake_timeout"
         except Exception as e:  # HELLO hỏng, peer đóng giữa chừng, ...
             peer_id, reason = None, getattr(e, "reason", type(e).__name__)
+        if isinstance(peer_id, ClientSession):
+            if outbound or self._stopping or self._client_handler is None:
+                writer.close()
+                return None
+            self._client_writers.add(writer)
+            task = asyncio.create_task(self._serve_client(reader, writer, peer_id.first_frame))
+            self._client_tasks.add(task)
+            task.add_done_callback(self._client_tasks.discard)
+            return None
         if peer_id == self.node_id:
             peer_id, reason = None, "self_connect"
         elif peer_id is not None and not outbound and self._inbound_filter is not None:
@@ -211,6 +247,25 @@ class TcpTransport:
         )
         self._event("conn_open", peer=peer_id, outbound=outbound, addr=addr)
         return peer_id
+
+    async def _serve_client(self, reader, writer, first_frame: bytes) -> None:
+        self._event("client_open", addr=_peername(writer))
+        try:
+            await self._client_handler(reader, writer, first_frame)
+        except asyncio.IncompleteReadError as exc:
+            if exc.partial:
+                self._event("client_error", reason="incomplete_frame")
+        except (OSError, asyncio.TimeoutError, ValueError, FrameTooLarge) as exc:
+            self._event("client_error", reason=type(exc).__name__)
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except OSError:
+                pass
+            finally:
+                self._client_writers.discard(writer)
+                self._event("client_closed")
 
     async def _read_loop(self, peer_id: str, reader, writer) -> None:
         reason = "eof"

@@ -36,7 +36,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 from l1sim.crypto import sign, verify
 from l1sim.encoding import decode, encode
 from l1sim.models import CHAIN_ID, Domain, Hello, Kind, Message
-from l1sim.network.tcp_transport import HandshakeFn, read_frame, write_frame
+from l1sim.network.tcp_transport import ClientSession, HandshakeFn, read_frame, write_frame
 
 HelloFn = Callable[[Hello], None]
 ValidatorKeys = Mapping[str, "bytes | Ed25519PublicKey"]
@@ -102,6 +102,7 @@ def handshake_fn(
     advertise_addr: Callable[[], str],
     finalized_height: Callable[[], int] = lambda: 0,
     on_hello: HelloFn | None = None,
+    allow_client_txs: bool = False,
 ) -> HandshakeFn:
     """Hàm đưa vào transport.set_handshake(): gửi HELLO của mình, kiểm HELLO của peer.
 
@@ -109,9 +110,17 @@ def handshake_fn(
     có sau start(), height tăng dần). on_hello(hello) được gọi khi HELLO của peer hợp lệ.
     """
 
-    async def hs(reader, writer, outbound: bool) -> str:
+    async def hs(reader, writer, outbound: bool) -> str | ClientSession:
         await write_frame(writer, make_hello(node_id, sk, advertise_addr(), finalized_height()))
-        hello = check_hello(await read_frame(reader), validators, node_id)
+        first_frame = await read_frame(reader)
+        if allow_client_txs and not outbound:
+            try:
+                first_message = decode(first_frame)
+            except ValueError:
+                first_message = None
+            if first_message is not None and first_message.kind is Kind.TX:
+                return ClientSession(first_frame)
+        hello = check_hello(first_frame, validators, node_id)
         if on_hello is not None:
             on_hello(hello)
         return hello.node_id
