@@ -40,6 +40,31 @@ def validate_tx(
     - "not_owner": key does not belong to sender (must start with f"{sender}/")
     - "bad_nonce": tx.nonce does not match expected nonce
     """
+    return _validate_tx(state, tx, user_keys, allow_future_nonce=False)
+
+
+def validate_pending_tx(
+    state: State,
+    tx: Tx,
+    user_keys: dict[str, Ed25519PublicKey] | None = None,
+) -> tuple[bool, str]:
+    """Validate a transaction for admission into the mempool.
+
+    Same checks and reasons as :func:`validate_tx`, except the nonce rule: a
+    nonce *above* the expected one is accepted, because a sender may submit
+    nonces 0, 1, 2 before any of them is in a block. A nonce *below* the expected
+    one is still "bad_nonce" (replay). Block building stays strict:
+    ``Mempool.take`` uses :func:`validate_tx`, so only the next nonce is executed.
+    """
+    return _validate_tx(state, tx, user_keys, allow_future_nonce=True)
+
+
+def _validate_tx(
+    state: State,
+    tx: Tx,
+    user_keys: dict[str, Ed25519PublicKey] | None,
+    allow_future_nonce: bool,
+) -> tuple[bool, str]:
     # 1. Signature check (per CONCEPT_GUIDE order: sig -> ownership -> nonce)
     if user_keys is not None:
         if tx.sender not in user_keys:
@@ -57,7 +82,7 @@ def validate_tx(
 
     # 3. Nonce check
     expected_nonce = state.get_nonce(tx.sender)
-    if tx.nonce != expected_nonce:
+    if tx.nonce < expected_nonce or (tx.nonce > expected_nonce and not allow_future_nonce):
         return False, "bad_nonce"
 
     return True, ""

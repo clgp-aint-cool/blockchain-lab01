@@ -10,6 +10,7 @@ from l1sim.execution import (
     apply_tx,
     compute_tx_root,
     validate_block,
+    validate_pending_tx,
     validate_tx,
 )
 from l1sim.models import GENESIS_HASH, Block, BlockHeader, Domain, Tx
@@ -158,6 +159,27 @@ def test_validate_tx_bad_nonce(keys, user_keys):
     ok, reason = validate_tx(state, tx, user_keys)
     assert ok is False
     assert reason == "bad_nonce"
+
+
+def test_validate_pending_tx_accepts_future_nonces_but_not_replays(keys, user_keys):
+    state = State()
+    state.nonces["Alice"] = 2
+    replayed = make_signed_tx(keys, "Alice", "Alice/msg", "old", 1)
+    current = make_signed_tx(keys, "Alice", "Alice/msg", "now", 2)
+    future = make_signed_tx(keys, "Alice", "Alice/msg", "later", 5)
+
+    assert validate_pending_tx(state, replayed, user_keys) == (False, "bad_nonce")
+    assert validate_pending_tx(state, current, user_keys) == (True, "")
+    assert validate_pending_tx(state, future, user_keys) == (True, "")
+    # Executing stays strict: only the next nonce can go into a block.
+    assert validate_tx(state, future, user_keys) == (False, "bad_nonce")
+
+
+def test_validate_pending_tx_checks_signature_before_nonce(keys, user_keys):
+    future = make_signed_tx(keys, "Alice", "Alice/msg", "later", 5)
+    forged = Tx(future.sender, future.key, future.value, future.nonce, signature="00" * 64)
+
+    assert validate_pending_tx(State(), forged, user_keys) == (False, "bad_signature")
 
 
 def test_validate_tx_ownership_enforced_at_model_construction():
