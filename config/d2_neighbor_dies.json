@@ -1,0 +1,47 @@
+{
+  "name": "d2_neighbor_dies",
+  "chain_id": "lab01",
+  "seed": 42,
+  "num_validators": 10,
+  "validators": ["V0", "V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9"],
+  "byzantine": [],
+  "max_height": 6,
+  "warmup_ms": 1000,
+  "max_txs_per_block": 4,
+  "actions": [
+    {"type": "kill", "node": "V1", "at_height": 2}
+  ],
+  "network": {
+    "min_delay_ms": 10,
+    "max_delay_ms": 200,
+    "drop_rate": 0.0,
+    "duplicate_rate": 0.0,
+    "gst_height": 0,
+    "delta_ms": 500,
+    "target_degree": 4
+  },
+  "discovery": {
+    "multicast_group": "239.1.1.1",
+    "multicast_port": 50000,
+    "beacon_interval_ms": 1000,
+    "target_degree": 4
+  },
+  "consensus": {
+    "timeout_propose_ms": 1000,
+    "timeout_prevote_ms": 1000,
+    "timeout_precommit_ms": 1000,
+    "timeout_delta_ms": 300
+  },
+  "transactions": [
+    {"sender": "Alice", "key": "Alice/account", "value": "d2-01", "nonce": 0},
+    {"sender": "Bob", "key": "Bob/account", "value": "d2-02", "nonce": 0},
+    {"sender": "Charlie", "key": "Charlie/account", "value": "d2-03", "nonce": 0},
+    {"sender": "Alice", "key": "Alice/account", "value": "d2-04", "nonce": 1},
+    {"sender": "Bob", "key": "Bob/account", "value": "d2-05", "nonce": 1},
+    {"sender": "Charlie", "key": "Charlie/account", "value": "d2-06", "nonce": 1},
+    {"sender": "Alice", "key": "Alice/account", "value": "d2-07", "nonce": 2},
+    {"sender": "Bob", "key": "Bob/account", "value": "d2-08", "nonce": 2},
+    {"sender": "Charlie", "key": "Charlie/account", "value": "d2-09", "nonce": 2},
+    {"sender": "Alice", "key": "Alice/account", "value": "d2-10", "nonce": 3}
+  ]
+}
