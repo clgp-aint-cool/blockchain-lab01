@@ -52,7 +52,7 @@ Trước khi sửa, 166 test vẫn pass, vì **chưa test nào nối network v�
 - `NodeLog`: mỗi node một logger, gắn `node` rồi ghi vào Recorder (dashboard) và `EventLogger` (JSONL). Engine không gửi `node` nữa (PR #15), nên phải có lớp này.
 - Kết quả bằng `ResultWriter` của A: `V*.json` (các block, state, state_hash) và `verdict.json`.
 - Thứ tự khởi động theo scenario: nối mesh → gửi tx → dùng `warmup_ms` cho tx lan tới mempool mọi node → **mới cho engine chạy**. Nếu không, 3 block đầu rỗng và proposer height 1 chỉ có 1 tx (đã gặp khi chạy thử).
-- `duplicate_ignored` chỉ đếm, không ghi vào file và feed: 10 node full mesh thì mỗi message tới 9 lần, chiếm 829 trên 901 dòng log của V0.
+- `gossip_duplicate` (trước đây gossip cũng gọi là `duplicate_ignored`) chỉ đếm, không ghi vào file và feed: 10 node full mesh thì mỗi message tới 9 lần, chiếm 829 trên 901 dòng log của V0.
 
 ## 3. Còn thiếu gì để chạy hoàn chỉnh (không cần devnet)
 
@@ -85,7 +85,7 @@ Devnet đang **đứng tạm** ở 3 chỗ. Khi có file thật của nhóm thì
 **C (bạn)**
 1. **Commit + mở PR phần network**, trước khi B merge `feat/network-faults`, để giải quyết xung đột `__init__.py` sớm.
 2. Gắn `FaultInjector` của B vào `gossip.sender` (cùng chỗ `Faults` của devnet đang gắn) và viết test T2 (dup/reorder) với faults thật.
-3. Chốt với D cách đếm `duplicate_ignored` cho T2: hiện **cả gossip lẫn engine** đều log event này.
+3. ~~Chốt với D cách đếm `duplicate_ignored` cho T2~~: đã tách, gossip log `gossip_duplicate`, `duplicate_ignored` chỉ còn của engine (review PR #16).
 4. (Tuỳ chọn) multicast discovery cho D1.
 
 **D**
@@ -100,7 +100,7 @@ Devnet đang **đứng tạm** ở 3 chỗ. Khi có file thật của nhóm thì
 | Test | Chạy được bằng devnet? | Còn thiếu |
 |---|---|---|
 | T1 normal | ✅ đủ (scenario thật, verdict pass) | chỉ cần node.py + launch_local để chạy nhiều process |
-| T2 dup/reorder | ⚠️ có delay/drop, **chưa có duplicate** | `FaultInjector` (B), scenario t2, chốt đếm `duplicate_ignored` |
+| T2 dup/reorder | ⚠️ có delay/drop, **chưa có duplicate** | `FaultInjector` (B), scenario t2, đếm `gossip_duplicate` + kiểm voter khác nhau trong certificate |
 | T3 chữ ký sai | ⚠️ tx sai chữ ký được (dashboard); vote/HELLO sai thì chưa | byzantine.py (D) |
 | T4 replay tx | ✅ nút Replay / test `test_replayed_tx_is_rejected` | scenario t4 |
 | T5 drop trước GST | ⚠️ drop được, nhưng **không có locking và block sync** | D: locking + block sync; B: GST theo height |

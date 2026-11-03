@@ -108,7 +108,7 @@ def test_disconnect_fires_once():
     async def main():
         a, b = await _make("a"), await _make("b")
         lost = []
-        b.set_disconnect_handler(lost.append)
+        b.add_disconnect_handler(lost.append)
 
         await a.connect(f"127.0.0.1:{b.port}")
         await _until(lambda: b.peers() == ["a"])
@@ -126,8 +126,8 @@ def test_reconnect_replaces_old_connection():
     async def main():
         a, b = await _make("a"), await _make("b")
         lost_a, lost_b, got = [], [], []
-        a.set_disconnect_handler(lost_a.append)
-        b.set_disconnect_handler(lost_b.append)
+        a.add_disconnect_handler(lost_a.append)
+        b.add_disconnect_handler(lost_b.append)
         b.set_receiver(lambda peer, data: got.append(data))
 
         await a.connect(f"127.0.0.1:{b.port}")
@@ -202,3 +202,49 @@ def test_receiver_error_does_not_drop_connection():
         return peers
 
     assert asyncio.run(main()) == ["a"]
+
+
+def test_all_disconnect_handlers_are_called():
+    async def main():
+        a, b = await _make("a"), await _make("b")
+        first, second = [], []
+
+        def broken(peer):
+            raise RuntimeError("handler lỗi")
+
+        b.add_disconnect_handler(first.append)
+        b.add_disconnect_handler(broken)  # không được chặn handler sau nó
+        b.add_disconnect_handler(second.append)
+
+        await a.connect(f"127.0.0.1:{b.port}")
+        await _until(lambda: b.peers() == ["a"])
+        a.close("b")
+        await _until(lambda: second == ["a"])
+        await a.stop()
+        await b.stop()
+        return first, second
+
+    assert asyncio.run(main()) == (["a"], ["a"])
+
+
+def test_inbound_filter_rejects_before_replacing():
+    async def main():
+        a, b, c = await _make("a"), await _make("b"), await _make("c")
+        b.set_inbound_filter(lambda peer: peer == "a")
+        events = []
+        b.logger = lambda name, **f: events.append((name, f))
+
+        assert await a.connect(f"127.0.0.1:{b.port}") == "b"
+        await _until(lambda: b.peers() == ["a"])
+        old = b._writers["a"]
+        await c.connect(f"127.0.0.1:{b.port}")  # c không được phép nối vào b
+        await _until(lambda: any(n == "handshake_failed" for n, _ in events))
+        # Filter chặn theo peer_id: kết nối sẵn có của "a" không bị đụng tới.
+        peers, same = b.peers(), b._writers["a"] is old
+        for t in (a, b, c):
+            await t.stop()
+        return peers, same, [f["reason"] for n, f in events if n == "handshake_failed"]
+
+    peers, same, reasons = asyncio.run(main())
+    assert peers == ["a"] and same
+    assert reasons == ["unexpected_inbound"]

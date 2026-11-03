@@ -63,3 +63,37 @@ def test_node_must_be_in_config():
     except ValueError:
         return
     raise AssertionError("phải báo lỗi khi node không có trong config")
+
+
+def test_dial_order_is_sorted_not_dict_order():
+    t = TcpTransport("v2", "127.0.0.1:0")
+    sp = StaticPeers("v2", {"v3": "h:3", "v1": "h:1", "v2": "h:2", "v0": "h:0"}, t)
+    assert sorted(sp._dial) == ["v0", "v1"]
+    assert sp._accept == {"v3"}
+
+
+def test_replayed_hello_cannot_cut_a_real_peer():
+    """Kẻ tấn công phát lại HELLO của v0 (node đứng trước) vào v2 qua kết nối đi vào:
+    v2 phải từ chối, giữ nguyên kết nối thật tới v0 (review PR #16)."""
+    from l1sim.network.hello import make_hello
+    from l1sim.network.tcp_transport import read_frame, write_frame
+
+    async def main():
+        c = Cluster(3)
+        await c.start()
+        v2 = c.nodes["v2"].transport
+        real = v2._writers["v0"]
+        replay = make_hello("v0", c.sks["v0"], c.addrs["v0"])  # như HELLO v0 từng gửi đi
+
+        reader, writer = await asyncio.open_connection("127.0.0.1", v2.port)
+        await write_frame(writer, replay)
+        await read_frame(reader)  # HELLO của v2
+        await c.until(lambda: c.log.names("handshake_failed", node="v2"))
+        still_real = v2._writers.get("v0") is real
+        writer.close()
+        await c.stop()
+        return still_real, [f["reason"] for f in c.log.names("handshake_failed", node="v2")]
+
+    still_real, reasons = asyncio.run(main())
+    assert still_real
+    assert reasons == ["unexpected_inbound"]

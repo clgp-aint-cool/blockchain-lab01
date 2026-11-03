@@ -1,4 +1,8 @@
-"""I1/I2 trong TEST_PLAN: lần đầu A + B + C + D chạy chung, TCP thật, 1 process."""
+"""I1/I2 trong TEST_PLAN: lần đầu A + B + C + D chạy chung, TCP thật, 1 process.
+
+`devnet/` không có trong file zip nộp bài, nên ở đó cả file này được bỏ qua (skip)
+thay vì làm pytest dừng lúc collection.
+"""
 
 from __future__ import annotations
 
@@ -6,9 +10,11 @@ import asyncio
 
 import pytest
 
-from devnet.net import Devnet
-from devnet.node import NodeConfig
-from l1sim.consensus.engine import TimeoutConfig
+pytest.importorskip("devnet.net", reason="devnet/ không có trong bản nộp")
+
+from devnet.net import Devnet  # noqa: E402
+from devnet.node import NodeConfig  # noqa: E402
+from l1sim.consensus.engine import TimeoutConfig  # noqa: E402
 
 TIMEOUTS = TimeoutConfig(propose_ms=800, prevote_ms=400, precommit_ms=400, delta_ms=200)
 

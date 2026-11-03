@@ -26,7 +26,7 @@ gossip.py      dedup sha256, chuyển tiếp, HEADER→BODY, gửi 1-1          
         │  sender(peer, bytes)  ← mặc định transport.send, B bọc FaultInjector vào đây
         ▼
 tcp_transport.py   ✅ đã xong (bản tối giản)                              [C]
-        ▲  connect(addr), set_handshake(hello), set_disconnect_handler
+        ▲  connect(addr), set_handshake(hello), add_disconnect_handler, set_inbound_filter
         │
 static_peers.py    đọc config, nối peer có id nhỏ hơn, thử lại mỗi 1 s  [C]
 hello.py           tạo / kiểm HELLO có ký                                [C]
@@ -92,7 +92,8 @@ class StaticPeers:
     def __init__(self, node_id, peers: dict[str, str], transport, logger, retry=1.0)
     async def start(self)      # task: mỗi `retry` giây, connect các peer id < mình mà chưa nối
     async def stop(self)
-    # transport.set_disconnect_handler → log peer_removed; vòng lặp tự nối lại
+    # transport.add_disconnect_handler → log peer_removed; vòng lặp tự nối lại
+    # transport.set_inbound_filter → chỉ nhận kết nối đi vào từ node đứng sau trong sorted(peers)
     # mỗi lần nối được → log peer_added
 ```
 
@@ -126,7 +127,7 @@ class Gossip:
 Luồng nhận, khoảng 25 dòng:
 ```
 mid = sha256(data)
-if mid in seen: log(duplicate_ignored); return
+if mid in seen: log(gossip_duplicate); return
 seen.add(mid)
 kind, payload = decode(data)               # lỗi → log(malformed), return
 ok = handler[kind](payload, peer)          # tầng trên kiểm chữ ký và hợp lệ
@@ -140,7 +141,7 @@ if kind in FLOOD and ok:
 
 **Test** `tests/unit/test_gossip.py`, 10 node TCP thật trong 1 process:
 - `broadcast` từ v0 → mọi node gọi handler đúng 1 lần.
-- Gửi lại cùng bytes → `duplicate_ignored`, handler không chạy lần 2.
+- Gửi lại cùng bytes → `gossip_duplicate`, handler không chạy lần 2.
 - Handler trả `False` → không chuyển tiếp.
 - Cắt kết nối v0–v5 → v5 vẫn nhận nhờ chuyển tiếp.
 - `send_to` → chỉ đúng 1 node nhận.
@@ -149,13 +150,13 @@ if kind in FLOOD and ok:
 
 | Test | Điều C phải đảm bảo | Cách kiểm |
 |---|---|---|
-| **T2** lặp, đảo thứ tự | gossip dedup; B bật `dup_rate`, delay khác nhau | `duplicate_ignored > 0`, không vote nào bị đếm 2 lần, không 2 block cùng height |
+| **T2** lặp, đảo thứ tự | gossip dedup; B bật `dup_rate`, delay khác nhau | `gossip_duplicate > 0` (gossip chặn bản trùng), mỗi `CommitCertificate` có n − f voter **khác nhau**, không vote nào bị đếm 2 lần, không 2 block cùng height |
 | **T5** mất, trễ trước GST | chuyển tiếp tạo đường vòng; D có `GET_BLOCKS` | safety pass; sau GST chain tiếp tục |
-| **T8** chạy lại cùng seed | ghi vào results chỉ những thứ tất định: `peers` sorted, số `duplicate_ignored` **không** ghi (phụ thuộc thời điểm) | `check_reproducible.py` của B |
+| **T8** chạy lại cùng seed | ghi vào results chỉ những thứ tất định: `peers` sorted, số `gossip_duplicate` **không** ghi (phụ thuộc thời điểm) | `check_reproducible.py` của B |
 | **D2** node chết | log `peer_removed`, nối lại khi node bật lại | chain tiếp tục tới height mục tiêu |
 | **D1** discovery | bản tối giản: mọi node đủ 9 peer, graph liên thông | đổi định nghĩa D1 thành "kết nối đầy đủ từ config", **cần chốt với nhóm** |
 
-Log sự kiện mạng, đề mục 6: `send`, `recv`, `duplicate_ignored`, `peer_added`, `peer_removed`, `handshake_failed`. Các sự kiện `drop`, `delay`, `block`, `unblock` do FaultInjector và PeerLimits của B ghi.
+Log sự kiện mạng, đề mục 6: `send`, `recv`, `gossip_duplicate`, `peer_added`, `peer_removed`, `handshake_failed`. Các sự kiện `drop`, `delay`, `block`, `unblock` do FaultInjector và PeerLimits của B ghi.
 
 ### Bậc 5, tuỳ chọn: multicast discovery (~3 giờ)
 
@@ -175,7 +176,7 @@ Chỉ làm khi bậc 1–4 đã pass. `multicast.py` gửi `ANNOUNCE{node_id, ad
 
 ## 5. Cần chốt với nhóm
 
-- [ ] **A:** khối `network.peers` trong config; interface logger (`logger.event(name, **fields)`); hàm ký và kiểm chữ ký trong `crypto.py`.
+- [ ] **A:** khối `network.peers` trong config; interface logger (`logger(name, **fields)`, node.py truyền `event_logger.event`); hàm ký và kiểm chữ ký trong `crypto.py`.
 - [ ] **B:** FaultInjector gắn vào `gossip.sender`, cùng chữ ký hàm `(peer, bytes) -> Awaitable`.
 - [ ] **D:** dùng `send_to` cho `BODY_REQUEST`/`BODY`/`GET_BLOCKS`/`BLOCKS`; handler trả `bool`.
 - [ ] **Cả nhóm:** D1 đổi thành "full mesh từ config", multicast là điểm cộng.

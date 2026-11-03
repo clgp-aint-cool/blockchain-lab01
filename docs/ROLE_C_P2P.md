@@ -226,7 +226,7 @@ class TcpTransport:
         # fn(reader, writer, outbound: bool) -> Awaitable[str | None]
         # Discovery cung cấp; trả peer_id nếu HELLO hợp lệ, None nếu không  [cần chốt]
     def set_receiver(self, callback) -> None          # callback(peer_id, data: bytes)
-    def set_disconnect_handler(self, callback) -> None  # callback(peer_id)
+    def add_disconnect_handler(self, callback) -> None  # callback(peer_id), nhiều handler được
 
     async def start(self) -> None                     # asyncio.start_server
     async def connect(self, addr: str) -> str | None  # open_connection + handshake

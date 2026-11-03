@@ -73,7 +73,7 @@ def test_broadcast_reaches_every_node_once():
         await c.nodes["v0"].gossip.broadcast(_tx("1"))
         await c.until(lambda: all(len(got[v]) == 1 for v in got if v != "v0"))
         await asyncio.sleep(0.2)  # chờ các bản chuyển tiếp tới hết
-        dups = len(c.log.names("duplicate_ignored"))
+        dups = len(c.log.names("gossip_duplicate"))
         await c.stop()
         return got, dups
 
@@ -92,7 +92,7 @@ def test_same_bytes_twice_is_ignored():
         data = encode(_vote())
         await c.nodes["v0"].transport.send("v1", data)
         await c.nodes["v0"].transport.send("v1", data)
-        await c.until(lambda: len(c.log.names("duplicate_ignored", node="v1")) == 1)
+        await c.until(lambda: len(c.log.names("gossip_duplicate", node="v1")) == 1)
         await c.stop()
         return got["v1"]
 

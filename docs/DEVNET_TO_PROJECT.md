@@ -31,7 +31,7 @@ Khác biệt quan trọng nhất: devnet = **1 process, cổng tự cấp**. B�
 |---|---|---|---|
 | 0 | C commit + PR `network/`; B rebase `feat/network-faults`, giữ `__init__.py` của B | C, B | `main` có đủ network + faults |
 | 1 | Thêm `peers` vào config + `load_config` đọc nó | A | `load_config` trả địa chỉ V0..V9 |
-| 2 | `node.py`: **chép** `DevNode` (đổi `NodeLog` → `EventLogger`, `Faults` → `FaultInjector`), thêm chờ `warmup_ms` và dừng ở `max_height`, ghi `ResultWriter` khi dừng | A | test: 4 `Node` trong 1 event loop finalize được (giống `test_devnet.py`) |
+| 2 | `node.py`: **chép** `DevNode` (đổi `NodeLog` → `EventLogger`: truyền `event_logger.event` cho **cả** engine lẫn network; `Faults` → `FaultInjector`), thêm chờ `warmup_ms` và dừng ở `max_height`, ghi `ResultWriter` khi dừng | A | test: 4 `Node` trong 1 event loop finalize được (giống `test_devnet.py`) |
 | 3 | `run_node.py --id V0 --scenario …` | A | 10 terminal chạy T1, mỗi node ghi results riêng |
 | 3b | `client.py` thêm `--connect host:port`: hiện CLI chỉ **in** tx ra stdout, chưa gửi vào mạng | A | gửi 20 tx của t1 vào V0 |
 | 4 | `check_safety.py` đọc `logs/results/<scenario>/` | B | in pass/fail giống `verdict.json` của devnet |

@@ -18,8 +18,8 @@ RETRY = 0.05
 
 
 class EventLog:
-    """Logger giả dùng chung cho cả cluster: kiểu hàm `log(name, **fields)`, nên network
-    truyền thêm `node` (logger kiểu object như EventLogger thì mỗi node 1 cái, tự ghi node)."""
+    """Logger giả dùng chung cho cả cluster. Network không truyền `node`, nên mỗi node
+    nhận một logger riêng `for_node(id)` tự gắn `node`, giống EventLogger thật."""
 
     def __init__(self) -> None:
         self.events: list[tuple[str, dict]] = []
@@ -29,6 +29,9 @@ class EventLog:
 
     def names(self, name: str, node: str | None = None) -> list[dict]:
         return [f for n, f in self.events if n == name and (node is None or f["node"] == node)]
+
+    def for_node(self, node_id: str):
+        return lambda name, **fields: self(name, node=node_id, **fields)
 
 
 def make_keys(n: int) -> tuple[dict[str, Ed25519PrivateKey], dict[str, bytes]]:
@@ -41,6 +44,7 @@ def make_keys(n: int) -> tuple[dict[str, Ed25519PrivateKey], dict[str, bytes]]:
 class Node:
     def __init__(self, node_id, sk, pks, log, listen="127.0.0.1:0") -> None:
         self.id = node_id
+        log = log.for_node(node_id)
         self.transport = TcpTransport(node_id, listen, logger=log)
         self.hellos: dict[str, Hello] = {}  # HELLO mới nhất của từng peer
         self.transport.set_handshake(
@@ -81,7 +85,9 @@ class Cluster:
         await self.until(lambda: len(self.log.names("peer_added")) == n * (n - 1))
 
     async def start_peers(self, node: Node) -> None:
-        node.peers = StaticPeers(node.id, self.addrs, node.transport, self.log, retry=RETRY)
+        node.peers = StaticPeers(
+            node.id, self.addrs, node.transport, self.log.for_node(node.id), retry=RETRY
+        )
         await node.peers.start()
 
     async def restart(self, node_id: str) -> Node:

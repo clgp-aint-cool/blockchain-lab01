@@ -6,13 +6,16 @@ tự kiểm chữ ký: việc xác thực peer nằm trong hàm handshake (HELLO
 Mỗi frame trên dây = 4 bytes độ dài (big-endian, unsigned) + nội dung.
 
 Quy ước của bản tối giản:
-- Node có id lớn chủ động nối tới node có id nhỏ, nên một cặp node không bao giờ
-  cùng mở kết nối tới nhau. Nếu vẫn có kết nối mới tới peer đã nối (peer khởi động
-  lại), kết nối mới thay kết nối cũ.
+- Ai nối tới ai là việc của tầng trên (StaticPeers: node đứng sau trong `sorted(peers)`
+  nối tới node đứng trước), sao cho một cặp node không bao giờ cùng mở kết nối tới nhau.
+  Nếu vẫn có kết nối mới tới peer đã nối (peer khởi động lại), kết nối mới thay kết nối
+  cũ. Tầng trên có thể đặt inbound filter để chỉ nhận kết nối đi vào từ peer được phép
+  quay số tới mình; filter chạy trước bước thay kết nối (xem hello.py về HELLO replay).
 - Mỗi peer chỉ có 1 coroutine: vòng đọc. Gửi là một lệnh `writer.write()`; lệnh này
   chạy đồng bộ, đưa nguyên cả frame vào buffer, nên các frame không bao giờ xen lẫn.
-- Disconnect handler được gọi đúng 1 lần khi mất kết nối; không gọi khi kết nối bị
-  thay bằng kết nối mới, hay khi `stop()`. Reconnect là việc của tầng trên.
+- Mỗi disconnect handler được gọi đúng 1 lần khi mất kết nối; không gọi khi kết nối bị
+  thay bằng kết nối mới, hay khi `stop()`. Reconnect là việc của tầng trên. Có thể đăng
+  ký nhiều handler (StaticPeers, block sync, ...), gọi theo thứ tự đăng ký.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ MAX_BUFFER = 4 * 1024 * 1024  # peer đọc chậm tới mức buffer gửi vư�
 HandshakeFn = Callable[[asyncio.StreamReader, asyncio.StreamWriter, bool], Awaitable["str | None"]]
 ReceiverFn = Callable[[str, bytes], None]
 DisconnectFn = Callable[[str], None]
+InboundFilterFn = Callable[[str], bool]
 
 _log = logging.getLogger(__name__)
 
@@ -83,7 +87,8 @@ class TcpTransport:
         self._tasks: dict[str, asyncio.Task] = {}  # peer_id → vòng đọc
         self._handshake: HandshakeFn | None = None
         self._receiver: ReceiverFn | None = None
-        self._on_disconnect: DisconnectFn | None = None
+        self._on_disconnect: list[DisconnectFn] = []
+        self._inbound_filter: InboundFilterFn | None = None
         self._stopping = False
 
     # ---------- cấu hình ----------
@@ -96,9 +101,13 @@ class TcpTransport:
         """callback(peer_id, data) cho mỗi frame nhận được sau handshake."""
         self._receiver = callback
 
-    def set_disconnect_handler(self, callback: DisconnectFn) -> None:
-        """callback(peer_id) khi mất kết nối tới peer."""
-        self._on_disconnect = callback
+    def add_disconnect_handler(self, callback: DisconnectFn) -> None:
+        """Thêm callback(peer_id), gọi khi mất kết nối tới peer. Không đè handler đã có."""
+        self._on_disconnect.append(callback)
+
+    def set_inbound_filter(self, fn: InboundFilterFn) -> None:
+        """fn(peer_id) -> False thì từ chối kết nối đi vào từ peer đó (sau HELLO hợp lệ)."""
+        self._inbound_filter = fn
 
     # ---------- API ----------
 
@@ -184,6 +193,11 @@ class TcpTransport:
             peer_id, reason = None, getattr(e, "reason", type(e).__name__)
         if peer_id == self.node_id:
             peer_id, reason = None, "self_connect"
+        elif peer_id is not None and not outbound and self._inbound_filter is not None:
+            if not self._inbound_filter(peer_id):
+                # Phải chặn trước bước thay kết nối, nếu không HELLO bị replay sẽ đá kết
+                # nối thật của peer này ra.
+                peer_id, reason = None, "unexpected_inbound"
         if peer_id is None or self._stopping:
             self._event("handshake_failed", addr=addr, outbound=outbound, reason=reason)
             writer.close()
@@ -227,10 +241,12 @@ class TcpTransport:
             task.cancel()
         writer.close()
         self._event("conn_closed", peer=peer_id, reason=reason)
-        if notify and not self._stopping and self._on_disconnect is not None:
+        if not notify or self._stopping:
+            return
+        for handler in list(self._on_disconnect):
             try:
-                self._on_disconnect(peer_id)
-            except Exception:
+                handler(peer_id)
+            except Exception:  # 1 handler lỗi không được chặn các handler sau
                 _log.exception("disconnect handler lỗi với %s", peer_id)
 
     def _event(self, event: str, **fields) -> None:

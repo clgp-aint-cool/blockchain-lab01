@@ -11,8 +11,15 @@ HELLO mang thêm `advertise_addr` và `finalized_height`; tầng trên nhận ch
 Bên nhận kiểm theo thứ tự, lỗi đầu tiên gặp phải là reason:
 malformed → wrong_chain → unknown_peer → self_connect → bad_signature.
 
-Giới hạn: HELLO không có nonce, nên ai bắt được HELLO của v1 có thể phát lại để giả
-làm v1 ở tầng kết nối. Chấp nhận được vì mọi vote/block bên trong vẫn có chữ ký riêng.
+Giới hạn: HELLO không có nonce (không challenge–response), nên ai bắt được HELLO của v1
+(vd v1 gửi nó khi kẻ đó nối tới v1) có thể phát lại mãi để giả làm v1 ở tầng kết nối.
+- Safety không bị ảnh hưởng: mọi vote/block bên trong vẫn có chữ ký riêng.
+- Liveness thì có: transport cho kết nối mới thay kết nối cũ, nên replay có thể đá kết
+  nối thật của v1 ra, và làm vậy với mọi peer của một node là cô lập node đó (eclipse).
+  StaticPeers giảm rủi ro này: chỉ nhận kết nối đi vào từ node đứng sau, nên chỉ giả
+  được node đứng sau, và node thật sẽ quay số lại đá kẻ giả ra. Kẻ tấn công vẫn có thể
+  làm kết nối chập chờn. Cách sửa triệt để: mỗi bên gửi nonce ngẫu nhiên trước, HELLO
+  ký nonce của bên kia (cần đổi `Hello` trong models.py).
 """
 
 from __future__ import annotations

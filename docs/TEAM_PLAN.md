@@ -445,7 +445,7 @@ class TcpTransport:
     async def send(self, peer_id: str, data: bytes) -> None
     def close(self, peer_id: str) -> None
     def set_receiver(self, callback) -> None              # callback(from_peer_id, data)
-    def set_disconnect_handler(self, callback) -> None    # callback(peer_id)
+    def add_disconnect_handler(self, callback) -> None    # callback(peer_id), nhiều handler được
 
 class Discovery:
     def __init__(self, node_id, genesis, scenario, transport, keypair, logger)

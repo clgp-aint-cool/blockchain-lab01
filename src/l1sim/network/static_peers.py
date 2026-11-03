@@ -1,8 +1,13 @@
 """StaticPeers: nối full mesh tới các peer có sẵn trong config.
 
-Config `network.peers` = {node_id: "host:port"}, gồm cả chính node này. Mọi node đọc
-cùng một config nên cùng thứ tự: node đứng sau chủ động nối tới node đứng trước
-(v5 nối v0..v4, v6..v9 nối tới v5). Một cặp node vì vậy chỉ có một bên quay số.
+Config `network.peers` = {node_id: "host:port"}, gồm cả chính node này. Thứ tự là
+`sorted(peers)` (so chuỗi, nên "V10" < "V2"), không phụ thuộc thứ tự trong dict, nên mọi
+node thấy cùng một thứ tự. Node đứng sau chủ động nối tới node đứng trước (v5 nối v0..v4,
+v6..v9 nối tới v5). Một cặp node vì vậy chỉ có một bên quay số.
+
+Kết nối đi vào chỉ được nhận từ node đứng sau (inbound filter của transport). Kẻ phát
+lại HELLO của node đứng trước sẽ bị từ chối, nên không đá được kết nối thật ra; còn nếu
+nó giả node đứng sau, node thật thấy mất kết nối và quay số lại, đá kẻ giả ra.
 
 Mỗi `retry` giây, vòng lặp nối lại peer đứng trước mà chưa có kết nối. Thứ tự bật
 node không quan trọng, node chết rồi bật lại cũng được nối lại.
@@ -34,13 +39,16 @@ class StaticPeers:
         self.transport = transport
         self.logger = logger
         self.retry = retry
-        order = list(peers)
-        self._dial = {p: peers[p] for p in order[: order.index(node_id)]}  # peer mình phải nối
+        order = sorted(peers)
+        me = order.index(node_id)
+        self._dial = {p: peers[p] for p in order[:me]}  # peer mình phải nối
+        self._accept = frozenset(order[me + 1 :])  # peer được nối tới mình
         self._known: set[str] = set()  # peer đã log peer_added
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
-        self.transport.set_disconnect_handler(self._on_lost)
+        self.transport.add_disconnect_handler(self._on_lost)
+        self.transport.set_inbound_filter(self._accept.__contains__)
         self._task = asyncio.create_task(self._loop(), name=f"peers:{self.node_id}")
 
     async def stop(self) -> None:

@@ -131,7 +131,7 @@ Kết quả: `PYTHONPATH=src pytest` → **133 passed** (130 trước đó + 3 t
 ## Cần báo nhóm (không sửa, vì không phải code của mình)
 
 - **Engine phát `Kind.BODY` qua `broadcast`** (`consensus/engine.py:675`, có `TODO(node.py)`). Gossip coi BODY là DIRECT, nên `broadcast_nowait(BODY)` sẽ ném `ValueError`. Khi viết `node.py`, A cần bọc callback, ví dụ: BODY → lưu body rồi `broadcast_nowait(Message(HEADER, ...))`, khi nhận BODY_REQUEST thì `send_to_nowait(peer, BODY)`. Không nên đưa BODY vào FLOOD, vì đề yêu cầu header trước body.
-- **Trùng tên event `duplicate_ignored`:** engine log event này khi VoteSet gặp vote trùng (`engine.py:452`), gossip cũng log khi bỏ bản trùng ở tầng mạng. Phân biệt được qua field: bản của gossip có `peer` và `mid`. Khi đếm cho T2 trong results, cần chốt đếm bản nào hoặc cộng cả hai.
+- **Trùng tên event `duplicate_ignored`:** engine log event này khi VoteSet gặp vote trùng (`engine.py:452`), gossip cũng log khi bỏ bản trùng ở tầng mạng. Phân biệt được qua field: bản của gossip có `peer` và `mid`. Khi đếm cho T2 trong results, cần chốt đếm bản nào hoặc cộng cả hai. *(Đã xử lý ở Lần 8: gossip đổi sang `gossip_duplicate`.)*
 - `logger.py` của A vẫn chưa có. Network giờ chấp nhận cả 2 kiểu nên không bị chặn.
 
 ## Bổ sung (31/10/2026, khi lên kế hoạch test)
@@ -165,7 +165,7 @@ Ngoài network chỉ sửa `devnet/` và `tests/integration/test_devnet.py`; kh�
 
 | File | Sửa |
 |---|---|
-| `README.md` (file chung, theo yêu cầu) | Thêm mục "Devnet: test the chain today": demo 4 node, `--scenario` có/không `--headless`, log/results ở đâu, T8 bằng tay, thao tác dashboard, `curl`, pytest. Mục "Run" cũ giữ nguyên, đổi tên "Run (target, without devnet)". |
+| `README.md` (file chung, theo yêu cầu) | Thêm mục "Devnet: test the chain today": demo 4 node, `--scenario` có/không `--headless`, log/results ở đâu, T8 bằng tay, thao tác dashboard, `curl`, pytest. Mục "Run" cũ giữ nội dung, chỉ đổi tên "Run (target, without devnet)" (Lần 6 dịch lại, Lần 8 chuyển phần devnet sang `devnet/README.md`). |
 | `docs/DEVNET_TO_PROJECT.md` (mới) | Map từng phần devnet → file thật của nhóm, thứ tự chuyển, lệnh demo sau khi chuyển, khi nào xoá `devnet/`. |
 | `devnet/run.py` | Sửa ví dụ curl trong docstring `node=v2` → `node=V2`. |
 
@@ -185,3 +185,22 @@ Bản cũ còn ghi hello/gossip/static_peers "chưa làm" và dùng pseudo-code.
 1. Tổng quan 5 file, 2. khởi động & kết nối (11 bước), 3. HELLO + lý do từ chối, 4. framing (demo tương tác), 5. hành trình một VOTE từ engine V0 tới engine V5 (16 bước), 6. header trước body (devnet → A), 7. mô phỏng gossip 10 node, 8. event log + chỗ gắn FaultInjector, 9. bảng 38 unit test.
 
 Code sửa sau này thì số dòng trong HTML có thể lệch; sinh lại khi cần.
+
+## Lần 8: sửa theo review PR #16 (vtnHAN-SOLO)
+
+| Note review | Sửa |
+|---|---|
+| `test_devnet.py` import `devnet`, zip nộp bài không có → pytest dừng lúc collection | `pytest.importorskip("devnet.net")`: trong repo vẫn chạy, trong zip thì skip. Không chuyển sang `devnet/tests/` vì `testpaths = ["tests"]` sẽ làm CI không chạy T1 nữa. |
+| README (có trong zip) chỉ tới `devnet/` và `docs/` | Phần devnet chuyển sang `devnet/README.md` (mới). README chính bỏ link `DEVNET_*.md`, bỏ dòng `devnet/` trong cấu trúc thư mục, chỉ còn 1 câu nói devnet có trong repo nhưng không có trong bản nộp; "Chạy (mục tiêu, không cần devnet)" → "Chạy". Sửa câu sai ở Lần 5 ("Run cũ giữ nguyên"). |
+| HELLO replay + kết nối mới thay kết nối cũ → cắt được peer thật (eclipse) | `TcpTransport.set_inbound_filter(fn)`: chạy **trước** bước thay kết nối, từ chối với reason `unexpected_inbound`. `StaticPeers` đặt filter: chỉ nhận kết nối đi vào từ node đứng sau. Docstring `hello.py` ghi rõ rủi ro eclipse còn lại và cách sửa triệt để (nonce challenge–response, cần đổi `Hello` của A). |
+| Network và engine dùng 2 kiểu logger | `emit` chỉ còn 1 quy ước, giống engine: `logger(event, **fields)`, không bao giờ truyền `node`. `node.py` truyền `event_logger.event` cho cả hai. `p2p_cluster.py` bọc logger chung bằng `EventLog.for_node(id)`. `NodeLog` của devnet không cần đổi (vẫn gọi được như hàm). |
+| Chỉ đăng ký được 1 disconnect handler | `set_disconnect_handler` → `add_disconnect_handler` (thêm vào list, gọi theo thứ tự, handler lỗi không chặn handler sau). Block sync của D đăng ký thêm được mà không đè `StaticPeers._on_lost`. |
+| Thứ tự quay số: docstring nói "id lớn nối id nhỏ", code dùng thứ tự dict | `StaticPeers` dùng `sorted(peers)`; docstring `tcp_transport.py` và `static_peers.py` sửa cho khớp. |
+| Trùng tên `duplicate_ignored` (gossip vs engine) | Gossip đổi sang `gossip_duplicate`; `duplicate_ignored` chỉ còn của engine. `NOISY` của devnet lọc `gossip_duplicate`, nên event của engine giờ được ghi vào file. |
+| Nit: message bị từ chối không được xét lại | Docstring gossip + comment `Handler`: handler chỉ trả False khi message sai vĩnh viễn. |
+
+Tài liệu cập nhật theo: `ROLE_C_P2P_LITE.md`, `ROLE_C_P2P.md`, `DEVNET_GAP_ANALYSIS.md`, `DEVNET_TO_PROJECT.md` (cách nối logger), và 1 dòng interface `TcpTransport` trong `TEAM_PLAN.md` (`add_disconnect_handler`). `p2p_network.html` là ảnh chụp code ở commit `f61a866`, chưa sinh lại.
+
+Test mới: `test_all_disconnect_handlers_are_called`, `test_inbound_filter_rejects_before_replacing` (`test_tcp_transport.py`); `test_dial_order_is_sorted_not_dict_order`, `test_replayed_hello_cannot_cut_a_real_peer` (`test_static_peers.py`, phát lại HELLO của v0 vào v2 và kiểm kết nối thật vẫn còn). `test_network_events.py` viết lại theo quy ước logger mới.
+
+Chưa làm (không phải phần C): `on_vote`/`on_proposal` trả `bool` (D), chuyển ngoại lệ nonce tương lai trong `_accept_tx` vào `Mempool` (B, khi viết `node.py`). `requested` trong `devnet/node.py` không được dọn khi prune `bodies`: devnet sắp bị xoá nên ghi lại để sửa khi chép sang `node.py`.

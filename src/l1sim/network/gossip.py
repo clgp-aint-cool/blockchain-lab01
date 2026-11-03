@@ -3,7 +3,11 @@
 Hai loại message:
 - FLOOD (TX, HEADER, VOTE): gửi cho mọi peer; node nhận chuyển tiếp tiếp nếu handler
   chấp nhận. Dedup theo `encoding.message_id(msg)`, nên mỗi node xử lý mỗi message
-  đúng 1 lần dù nhận nhiều bản.
+  đúng 1 lần dù nhận nhiều bản (bản trùng log `gossip_duplicate`; tên `duplicate_ignored`
+  dành cho engine khi VoteSet gặp vote đã đếm).
+  Message được đánh dấu đã thấy trước khi gọi handler, nên message bị từ chối sẽ không
+  bao giờ được xét lại dù bản khác tới sau. Vì vậy handler chỉ được trả False cho
+  message sai vĩnh viễn (chữ ký sai, height cũ, nonce cũ), không cho lý do tạm thời.
 - DIRECT (BODY_REQUEST, BODY, GET_BLOCKS, BLOCKS): gửi 1-1, không dedup, không chuyển tiếp.
 HELLO chỉ dùng trong handshake (hello.py), không đi qua gossip.
 
@@ -33,7 +37,8 @@ from l1sim.network.tcp_transport import TcpTransport
 FLOOD = frozenset({Kind.TX, Kind.HEADER, Kind.VOTE})
 DIRECT = frozenset({Kind.BODY_REQUEST, Kind.BODY, Kind.GET_BLOCKS, Kind.BLOCKS})
 
-# handler(msg, from_peer) -> True nếu hợp lệ. Có thể là hàm thường hoặc async.
+# handler(msg, from_peer) -> True nếu hợp lệ, False chỉ khi sai vĩnh viễn (xem docstring).
+# Có thể là hàm thường hoặc async.
 Handler = Callable[[Message, str], "bool | Awaitable[bool]"]
 SenderFn = Callable[[str, bytes], Awaitable[None]]
 
@@ -124,7 +129,7 @@ class Gossip:
         if msg.kind in FLOOD:
             # Kiểm và đánh dấu trước lệnh await đầu tiên, nên 2 bản đến sát nhau không lọt.
             if mid in self._seen:
-                self._event("duplicate_ignored", kind=kind, peer=peer, mid=mid[:16])
+                self._event("gossip_duplicate", kind=kind, peer=peer, mid=mid[:16])
                 return
             self._seen.add(mid)
 

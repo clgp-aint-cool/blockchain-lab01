@@ -34,8 +34,9 @@ from l1sim.network.static_peers import StaticPeers
 from l1sim.network.tcp_transport import TcpTransport
 
 # Event quá dày (mỗi message 1 dòng) không đưa vào feed và file log, chỉ đếm.
-# duplicate_ignored: full mesh 10 node thì mỗi message flood tới 9 lần, 8 lần là trùng.
-NOISY = frozenset({"gossip_broadcast", "gossip_send", "gossip_recv", "duplicate_ignored"})
+# gossip_duplicate: full mesh 10 node thì mỗi message flood tới 9 lần, 8 lần là trùng.
+# (duplicate_ignored của engine, vote đã đếm, vẫn được ghi.)
+NOISY = frozenset({"gossip_broadcast", "gossip_send", "gossip_recv", "gossip_duplicate"})
 BODY_RETRY_S = 0.3
 BODY_MAX_TRIES = 10
 
@@ -95,9 +96,10 @@ class Recorder:
 class NodeLog:
     """Logger của 1 node, đưa cho engine và network.
 
-    Engine (sau PR #15) không gửi `node` nữa, network gửi `node`: ở đây bỏ `node` đến từ
-    caller, tự gắn id của node rồi ghi vào Recorder (dashboard) và, nếu có, EventLogger
-    (logs/events/<scenario>/<node>.jsonl, logger chính thức của nhóm).
+    Engine và network cùng gọi `logger(event, **fields)` và không gửi `node`. Ở đây tự gắn
+    id của node rồi ghi vào Recorder (dashboard) và, nếu có, EventLogger
+    (logs/events/<scenario>/<node>.jsonl, logger chính thức của nhóm). `node` đến từ
+    caller (vd `body_unrequested` trong file này) bị bỏ, vì id lấy từ chính node.
     """
 
     def __init__(self, node_id: str, recorder: Recorder, file: EventLogger | None = None) -> None:
