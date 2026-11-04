@@ -74,6 +74,11 @@ def check_safety_for_nodes(
                 if isinstance(b, dict) and "hash" in b:
                     hist[int(h_str)] = b
 
+        block_hashes = data.get("block_hashes")
+        if isinstance(block_hashes, list) and not hist:
+            for idx, h_val in enumerate(block_hashes, start=1):
+                hist[idx] = {"height": idx, "hash": str(h_val)}
+
         node_history[node_id] = hist
         fin_h = data.get("finalized_height")
         if fin_h is None:
@@ -100,11 +105,11 @@ def check_safety_for_nodes(
     if common_height > 0:
         state_hashes = set()
         for v in nodes_data:
-            if common_height in node_history[v]:
-                state_hashes.add(node_history[v][common_height].get("state_hash", ""))
-            else:
-                state_hashes.add(node_final_state_hash[v])
-        same_state = len(state_hashes) == 1
+            sh = node_history[v].get(common_height, {}).get("state_hash")
+            if not sh:
+                sh = node_final_state_hash.get(v, "")
+            state_hashes.add(sh)
+        same_state = len(state_hashes) == 1 and bool(next(iter(state_hashes)))
     else:
         # Height 0: check if initial state hashes match
         initial_hashes = {h for h in node_final_state_hash.values() if h}

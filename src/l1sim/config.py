@@ -79,6 +79,7 @@ class ScenarioConfig:
     consensus: ConsensusConfig
     discovery: DiscoveryConfig
     transactions: tuple[dict[str, Any], ...]
+    actions: tuple[dict[str, Any], ...] = ()
 
 
 def _read_json(path: str | Path) -> dict[str, Any]:
@@ -316,6 +317,10 @@ def load_scenario(path: str | Path) -> ScenarioConfig:
         if not tx["key"].startswith(f"{tx['sender']}/"):
             raise ConfigError(f"transactions[{index}] key must start with sender/")
 
+    actions = raw.get("actions", [])
+    if not isinstance(actions, list):
+        raise ConfigError("actions must be a list")
+
     return ScenarioConfig(
         name=name,
         chain_id=chain_id,
@@ -330,6 +335,7 @@ def load_scenario(path: str | Path) -> ScenarioConfig:
         consensus=consensus,
         discovery=discovery,
         transactions=tuple(transactions),
+        actions=tuple(actions),
     )
 
 

@@ -239,3 +239,27 @@ def test_check_safety_cli_failure(tmp_path: Path):
 def test_check_safety_cli_error():
     assert main([]) == 2
     assert main(["non_existent_folder_xyz"]) == 2
+
+
+def test_check_safety_node_py_format():
+    node_data = {
+        "V0": {
+            "node_id": "V0",
+            "chain_id": "lab01",
+            "finalized_height": 2,
+            "state_hash": "sh_common",
+            "block_hashes": ["hash1", "hash2"],
+        },
+        "V1": {
+            "node_id": "V1",
+            "chain_id": "lab01",
+            "finalized_height": 2,
+            "state_hash": "sh_common",
+            "block_hashes": ["hash1", "hash2"],
+        },
+    }
+    res = check_safety_for_nodes(node_data, scenario_name="test_node_format", max_height=2)
+    assert res["pass"] is True
+    assert res["safety_violations"] == []
+    assert res["same_state_at_common_height"] is True
+    assert res["common_height"] == 2
