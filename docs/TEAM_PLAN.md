@@ -30,7 +30,7 @@ Giảng viên chấm theo tiêu chí: cách chỉ vừa đáp ứng yêu cầu s
 - [ ] `python -m l1sim.run_node --id V3 --port 9003 --scenario config/t1_normal.json` chạy được một node trong một terminal, tự tìm peer, không cần ghi sẵn địa chỉ của node khác.
 - [ ] 10 terminal, 10 node trên một máy, mọi node finalize cùng chuỗi block.
 - [ ] Node chia trên laptop và homelab qua ZeroTier, mọi node finalize cùng chuỗi block, và `logs/results/` giống hệt khi chạy trên một máy.
-- [ ] `make test` chạy toàn bộ unit test và T1–T8, D1–D3, tất cả pass.
+- [ ] `make test` chạy toàn bộ unit test và T1–T8, tất cả pass.
 - [ ] `python tests/check_reproducible.py` chạy mọi scenario 2 lần, `logs/results/` giữa 2 lần **byte-identical**, và trùng với bản nhóm nộp.
 - [ ] README.md hướng dẫn cài đặt, chạy từng node bằng terminal, chạy nhiều máy, chạy test, cách giảng viên reproduce kết quả.
 - [ ] REPORT.pdf viết bằng tiếng Việt, tối đa 10 trang, đủ các mục đề yêu cầu, không chèn source code.
@@ -138,7 +138,7 @@ blockchain-lab01/
 │   ├── check_reproducible.py# chạy 2 lần, so logs/results/              [B]
 │   ├── requirements.txt     # version cố định, cho người chấm            [A]
 │   ├── unit/                # có sẵn, có test_smoke.py
-│   └── e2e/                 # có sẵn, trống: T1–T8, D1–D3
+│   └── e2e/                 # có sẵn, trống: T1–T8
 ├── config/
 │   ├── default.json         # có sẵn, sửa lại theo genesis + scenario    [A]
 │   ├── genesis.json         # chain_id, seed, validator ids + public keys [A]
@@ -527,8 +527,8 @@ Mỗi người **sở hữu một phần**: code, unit test và đoạn report c
 | --- | --- | --- | --- | --- | --- |
 | A, trưởng nhóm | Foundation + Integration + ZeroTier | `encoding`, `crypto`, `types`, `config`, `logger`, `node`, `run_node`, `client`, `tests/run_tests.py`, sửa scaffold, `scripts/` | sign/verify, sai domain bị reject, encode ổn định | T1, T3, chạy ZeroTier | Introduction, System Design, ghép report |
 | B | Execution + Faults + Reproducibility | `state`, `mempool`, `validation`, `faults`, `peer_limits`, `launch_local`, `check_safety`, `check_reproducible` | apply tx, ownership, nonce, state_hash, fault decision theo hash, rate limit | T4, T5, T8 | Execution, fault injection, reproducibility, testing & results |
-| C | P2P Network | `tcp_transport`, `discovery`, `gossip` | framing, HELLO, ANNOUNCE giả bị từ chối, chọn neighbor, gossip không lặp vô hạn | T2, D1, D2 | Network, discovery, gossip strategy |
-| D | Consensus + Block sync | `vote_set`, `engine`, `byzantine`, `block_sync` | đếm vote, dedup, equivocation, lock rule, certificate thiếu chữ ký bị từ chối | T6, T7, D3 | Consensus, locking, vote rules, block sync |
+| C | P2P Network | `tcp_transport`, `discovery`, `gossip` | framing, HELLO, ANNOUNCE giả bị từ chối, chọn neighbor, gossip không lặp vô hạn | T2 | Network, discovery, gossip strategy |
+| D | Consensus + Block sync | `vote_set`, `engine`, `byzantine`, `block_sync` | đếm vote, dedup, equivocation, lock rule, certificate thiếu chữ ký bị từ chối | T6, T7 | Consensus, locking, vote rules, block sync |
 
 **Quy tắc phối hợp:**
 
@@ -604,9 +604,9 @@ gantt
 
 ### Phase 3 – Faults, discovery, ZeroTier (02–04/11)
 
-- [ ] D: locking theo rule 4–5, timeout tăng dần, `byzantine.py`; T6, T7. Sau đó `block_sync.py`, D3.
+- [ ] D: locking theo rule 4–5, timeout tăng dần, `byzantine.py`; T6, T7. Sau đó `block_sync.py`.
 - [ ] B: scenario T5 theo `gst_height`; chống replay tx bằng nonce, T4; T8 trên mọi scenario.
-- [ ] C: bật multicast discovery mặc định; T2, D1, D2.
+- [ ] C: bật multicast discovery mặc định; T2.
 - [ ] A: T3, `tests/run_tests.py`, `tests/requirements.txt`, README có phần reproduce cho giảng viên; chạy T1 và T7 qua ZeroTier vào 03–04/11, so results với lần chạy một máy.
 - [ ] Cả nhóm: viết nháp phần report của mình **ngay khi module ổn định**, không đợi Phase 4.
 - [ ] Gate 04/11: **mọi test pass**, **reproduce 2 lần byte-identical**, **chạy được qua ZeroTier**.
@@ -647,11 +647,8 @@ flowchart TD
 | T6 | `t6_silent_proposer.json` | Proposer của height 2 round 0 im lặng | Height 2 finalize ở round 1 với proposer khác, chain tiếp tục | D |
 | T7 | `t7_byzantine.json` | f = 3 node equivocate: vote 2 block, propose 2 block | Không finalize xung đột, results có danh sách equivocation | D |
 | T8 | Mọi scenario, mỗi cái 2 lần | `check_reproducible.py` | `logs/results/` của 2 lần byte-identical | B |
-| D1 | `d1_discovery.json` | Node bật theo thứ tự xáo trộn, không node nào biết trước địa chỉ của node khác | Mọi node đủ `target_degree` neighbor, graph connected, T1 vẫn pass | C |
-| D2 | `d2_neighbor_dies.json` | Kill 1 neighbor của V0 sau height 2 | V0 log `peer_removed` rồi `peer_added`, chain tiếp tục | C |
-| D3 | `d3_restart.json` | Kill V8 ở height 3, bật lại ở height 6 | V8 block sync tới height hiện tại, rồi finalize cùng chain với các node khác | D |
 
-**Lưu ý D2, D3:** kill và bật lại theo **height** trong scenario, không theo thời gian, để results reproduce được.
+**D1, D2, D3 đã bỏ khỏi end-to-end** (chốt 04/11): không còn scenario `d1_discovery.json`, `d2_neighbor_dies.json`, `d3_restart.json`, và không cần kill/restart theo height.
 
 ### Unit test tối thiểu
 
@@ -683,7 +680,7 @@ Quy trình branch, commit, PR đã có trong `CONTRIBUTING.md` và PR template; 
 - Mỗi lần reject một thứ gì → **log kèm reason** và đếm vào results.
 - Event log: JSON lines, mỗi node một file `logs/<scenario>/<node_id>.jsonl`; mỗi dòng có tối thiểu `time, node, event, height`.
 - Network event cần log: `send`, `deliver`, `drop`, `delay`, `duplicate`, `block`, `unblock`, `peer_added`, `peer_removed`, `sync_start`, `sync_done`.
-- Mọi tham số như số node, `target_degree`, timeout, fault rate, `gst_height`, Byzantine, kill/restart nằm trong scenario config, không hard-code, để sửa nhanh khi vấn đáp.
+- Mọi tham số như số node, `target_degree`, timeout, fault rate, `gst_height`, Byzantine nằm trong scenario config, không hard-code, để sửa nhanh khi vấn đáp.
 - Chạy `make lint test` trước khi push; CI đã kiểm tra `ruff` và pytest.
 
 ---
@@ -699,7 +696,7 @@ REPORT.pdf tối đa 10 trang, **viết bằng tiếng Việt**, giữ nguyên t
 | System Design: diagram module, discovery, message flow, chạy nhiều máy | 2 | A, C, D |
 | Implementation Notes: guards, gossip strategy, fault injection, reproducibility, từng bước consensus, block sync | 3 | B, C, D |
 | Non-trivial bugs & cách fix, lấy từ `docs/BUGS.md` | 1 | Cả nhóm |
-| Testing and Results: T1–T8, D1–D3, kết quả ZeroTier, expected vs observed, anomalies | 1.5 | B, C |
+| Testing and Results: T1–T8, kết quả ZeroTier, expected vs observed, anomalies | 1.5 | B, C |
 | References | 0.5 | A |
 
 ### Design rationale
@@ -735,11 +732,10 @@ Buổi vấn đáp phải **demo** và có thể bị yêu cầu **giải thích
 - [ ] Script demo:
     1. Mở 10 terminal, bật node theo thứ tự bất kỳ, các node tự tìm nhau bằng multicast.
     2. Finalize vài block.
-    3. Kill 1 node: chain vẫn chạy, neighbor của nó tự thay neighbor.
-    4. Bật lại node đó: nó block sync rồi tham gia lại.
-    5. Chạy scenario có Byzantine: không finalize xung đột.
-    6. Chạy `check_reproducible.py`.
-    7. Nếu có mạng: chia node sang homelab qua ZeroTier, cho thấy results giống hệt chạy một máy.
+    3. Kill tới f = 3 node: các node còn lại vẫn finalize.
+    4. Chạy scenario có Byzantine: không finalize xung đột.
+    5. Chạy `check_reproducible.py`.
+    6. Nếu có mạng: chia node sang homelab qua ZeroTier, cho thấy results giống hệt chạy một máy.
 - [ ] Tập demo ít nhất 1 lần trên máy sẽ dùng, **khi laptop đang nối 5G hotspot của điện thoại**, giống hệt điều kiện phòng thi.
 
 ### Trước khi nộp
@@ -780,6 +776,7 @@ Buổi vấn đáp phải **demo** và có thể bị yêu cầu **giải thích
 - **Block sync** có commit certificate để node restart hoặc vào trễ tham gia lại được.
 - **Bắt buộc có fault injection** cho T2 và T5.
 - **T8:** event log được khác nhau về timestamp và thứ tự; `logs/results/` không timestamp phải byte-identical để giảng viên reproduce đúng kết quả của nhóm.
+- **D1, D2, D3 bỏ khỏi end-to-end** (04/11). Test end-to-end chỉ còn T1–T8.
 - **Vấn đáp có demo**, có thể phải giải thích và sửa code tại chỗ.
 
 ### Còn mở
