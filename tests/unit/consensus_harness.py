@@ -26,6 +26,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from l1sim.consensus.byzantine import Byzantine, ByzantineRule
 from l1sim.consensus.engine import ConsensusEngine, Step, TimeoutConfig
 from l1sim.crypto import KeyPair, keypair_from_seed, sign
 from l1sim.encoding import block_hash, decode, encode
@@ -174,6 +175,7 @@ class Network:
         drop: DropRule | None = None,
         max_txs_per_block: int = 10,
         seed: int = 7,
+        byzantine: Iterable[ByzantineRule] = (),
     ) -> None:
         """Build the network; engines are created but not started.
 
@@ -186,6 +188,9 @@ class Network:
             drop: Optional :data:`DropRule` deciding which deliveries are lost.
             max_txs_per_block: Passed to every engine.
             seed: Seed for ``keypair_from_seed``.
+            byzantine: Rules from ``parse_byzantine``. The engine of a listed
+                node stays honest; what it broadcasts goes through
+                :meth:`Byzantine.outgoing`, like ``node.py`` does.
         """
         self.clock = FakeClock()
         self.ids = sorted(f"V{i}" for i in range(n))
@@ -197,6 +202,11 @@ class Network:
         self.sent: list[tuple[str, Message]] = []
         self.scheduled: dict[str, list[tuple[int, int, int, Step]]] = {}
         self.engines: dict[str, ConsensusEngine] = {}
+        rules = tuple(byzantine)
+        self.byzantine: dict[str, Byzantine] = {
+            node: Byzantine(node, rules, self.keys[node], self._logger(node))
+            for node in sorted({rule.node for rule in rules})
+        }
 
         validator_keys = {node: pair.public_key for node, pair in self.keys.items()}
         tx_list = list(txs)
@@ -230,6 +240,9 @@ class Network:
         The callback records the message in :attr:`sent` and schedules one
         delivery per other validator, skipping deliveries that ``drop`` rejects.
         It never delivers to ``src`` itself, matching the engine's contract.
+        For a Byzantine ``src``, :attr:`sent` keeps what the engine signed, and
+        the deliveries are what :meth:`Byzantine.outgoing` returns (possibly
+        nothing, a changed message, two messages, or a delayed one).
 
         Args:
             src: Id of the sending engine.
@@ -240,10 +253,15 @@ class Network:
 
         def broadcast(message: Message) -> None:
             self.sent.append((src, message))
-            for dst in self.ids:
-                if dst == src or (self._drop is not None and self._drop(src, dst, message)):
-                    continue
-                self.clock.call_later(self._latency, self._deliverer(dst, message))
+            outgoing = [(0, message)]
+            if src in self.byzantine:
+                engine = self.engines[src]
+                outgoing = self.byzantine[src].outgoing(message, engine.state, engine.proposals)
+            for delay_ms, wire in outgoing:
+                for dst in self.ids:
+                    if dst == src or (self._drop is not None and self._drop(src, dst, wire)):
+                        continue
+                    self.clock.call_later(self._latency + delay_ms, self._deliverer(dst, wire))
 
         return broadcast
 
