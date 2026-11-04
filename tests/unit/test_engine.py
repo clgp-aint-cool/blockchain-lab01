@@ -589,3 +589,24 @@ def test_round_skip_needs_f_plus_one_validators_in_the_higher_round():
     net.deliver("V0", Message(Kind.VOTE, "V2", 1, two))
     assert engine.round == 3
     assert ("round_skip", 3) in [(e, f.get("to_round")) for e, f in net.events["V0"]]
+
+
+def test_conflicting_proposal_that_gets_committed_is_still_finalized():
+    """An equivocating proposer's second block reaches V0 first; the others commit the first one."""
+    net = Network(4, drop=lambda src, dst, message: True)
+    net.start(only=["V0"])
+    engine = net.engines["V0"]
+    proposer = proposer_for(net.ids, 1, 0)
+    committed = net.make_block(proposer, 1, 0, sample_txs()[:1], parent_hash=GENESIS_HASH)
+    other = net.make_block(proposer, 1, 0, sample_txs()[:2], parent_hash=GENESIS_HASH)
+
+    net.deliver("V0", Message(Kind.BODY, proposer, 1, other))
+    net.deliver("V0", Message(Kind.BODY, proposer, 1, committed))
+    digest = block_hash(committed.header)
+    for voter in ("V1", "V2", "V3"):
+        vote = net.make_vote(voter, Phase.PRECOMMIT, 1, 0, digest)
+        net.deliver("V0", Message(Kind.VOTE, voter, 1, vote))
+
+    assert net.hashes("V0") == [digest]
+    assert engine.height == 2
+    assert "commit_waiting_for_block" not in net.event_names("V0")

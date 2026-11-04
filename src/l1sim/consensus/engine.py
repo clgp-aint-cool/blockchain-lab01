@@ -812,6 +812,14 @@ class ConsensusEngine:
 
         Also indexes the block by hash so a polka or commit for it can find it.
 
+        A conflicting second proposal (an equivocating proposer) does not take
+        the slot, so this node never prevotes it, but it is still indexed by
+        hash. Which of the two arrives first depends on the network: if the
+        rest of the validators commit the one this node got second, the node
+        must still be able to finalize it instead of waiting forever with
+        ``commit_waiting_for_block``. Finalizing still requires a PRECOMMIT
+        quorum and :meth:`_is_valid`, so keeping the block is safe.
+
         Args:
             block: A proposal whose proposer and signature were already checked.
 
@@ -825,6 +833,7 @@ class ConsensusEngine:
         if existing is not None:
             if block_hash(existing.header) != digest:
                 self._log("proposal_conflict", block_hash=digest, proposer=block.header.proposer)
+                self._blocks.setdefault(digest, block)
             return False
         self.proposals[slot] = block
         self._blocks[digest] = block
