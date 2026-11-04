@@ -312,10 +312,24 @@ def test_check_safety_ignores_byzantine_nodes():
     res_fail = check_safety_for_nodes(node_data, scenario_name="test_byz", max_height=5)
     assert res_fail["pass"] is False
 
-    # With excluding V7: passes
+    # With excluding V7: passes and preserves total validator count n
     res_ok = check_safety_for_nodes(
         node_data, scenario_name="test_byz", max_height=5, byzantine_nodes=["V7"]
     )
     assert res_ok["pass"] is True
     assert res_ok["same_state_at_common_height"] is True
     assert res_ok["safety_ok"] is True
+    assert res_ok["n"] == 8
+    assert res_ok["f"] == 2
+
+    # Explicit num_validators=10 (f=3, quorum=7)
+    res_10 = check_safety_for_nodes(
+        node_data,
+        scenario_name="test_byz",
+        max_height=5,
+        num_validators=10,
+        byzantine_nodes=["V7"],
+    )
+    assert res_10["pass"] is True
+    assert res_10["n"] == 10
+    assert res_10["f"] == 3

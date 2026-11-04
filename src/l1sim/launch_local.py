@@ -254,10 +254,16 @@ def launch_local(
 
         # 5. Check Safety and State Consistency
         if run_check:
+            byz = [
+                r.node if hasattr(r, "node") else (r["node"] if isinstance(r, dict) else r)
+                for r in getattr(scenario, "byzantine", ())
+            ]
             verdict = check_safety(
                 scenario.name,
                 results_root=str(res_root),
                 max_height=scenario.max_height,
+                num_validators=scenario.num_validators,
+                byzantine_nodes=byz,
                 write_verdict=write_verdict,
             )
             return verdict

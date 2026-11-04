@@ -17,6 +17,7 @@ def check_safety_for_nodes(
     *,
     scenario_name: str = "unknown",
     max_height: int | None = None,
+    num_validators: int | None = None,
     byzantine_nodes: Collection[str] = (),
 ) -> dict[str, Any]:
     """Verify safety and state consistency across an in-memory dictionary of node results.
@@ -25,12 +26,13 @@ def check_safety_for_nodes(
         nodes_data: mapping of node_id -> node result dictionary (as written by ResultWriter).
         scenario_name: name of the scenario.
         max_height: target height required to pass liveness.
+        num_validators: total validator count in the network (n). Defaults to len(nodes_data).
         byzantine_nodes: optional set of node IDs to exclude from consistency checks.
 
     Returns:
         dict containing verdict fields:
           - scenario: str
-          - n: int (number of nodes checked)
+          - n: int (total validator count)
           - f: int (fault tolerance, (n - 1) // 3)
           - common_height: int
           - max_height: int
@@ -40,14 +42,22 @@ def check_safety_for_nodes(
           - total_txs: int
           - pass: bool
     """
-    if byzantine_nodes:
-        nodes_data = {v: d for v, d in nodes_data.items() if v not in byzantine_nodes}
+    # Keep total validator count n from num_validators or total nodes_data
+    # so f and quorum reflect the whole network size.
+    n = num_validators if num_validators is not None else len(nodes_data)
+    f = (n - 1) // 3 if n >= 4 else 0
 
-    if not nodes_data:
+    # Safety and state consistency are only checked across honest nodes
+    if byzantine_nodes:
+        honest_nodes_data = {v: d for v, d in nodes_data.items() if v not in byzantine_nodes}
+    else:
+        honest_nodes_data = dict(nodes_data)
+
+    if not honest_nodes_data:
         return {
             "scenario": scenario_name,
-            "n": 0,
-            "f": 0,
+            "n": n,
+            "f": f,
             "common_height": 0,
             "max_height": max_height or 0,
             "reached_max_height": False,
@@ -59,15 +69,12 @@ def check_safety_for_nodes(
             "pass": False,
         }
 
-    n = len(nodes_data)
-    f = (n - 1) // 3 if n >= 4 else 0
-
     # Parse per-node history: height -> {"hash": str, "state_hash": str, "txs": int, "round": int}
     node_history: dict[str, dict[int, dict[str, Any]]] = {}
     node_final_height: dict[str, int] = {}
     node_final_state_hash: dict[str, str] = {}
 
-    for node_id, data in nodes_data.items():
+    for node_id, data in honest_nodes_data.items():
         hist: dict[int, dict[str, Any]] = {}
         blocks = data.get("blocks", [])
         if isinstance(blocks, list):
@@ -114,7 +121,7 @@ def check_safety_for_nodes(
     same_state = True
     if common_height > 0:
         state_hashes = set()
-        nodes_at_common = [v for v in nodes_data if node_final_height[v] >= common_height]
+        nodes_at_common = [v for v in honest_nodes_data if node_final_height[v] >= common_height]
         for v in nodes_at_common:
             sh = node_history[v].get(common_height, {}).get("state_hash")
             if not sh:
@@ -158,6 +165,7 @@ def check_safety(
     results_root: str | Path = "logs/results",
     *,
     max_height: int | None = None,
+    num_validators: int | None = None,
     byzantine_nodes: Collection[str] = (),
     write_verdict: bool = False,
 ) -> dict[str, Any]:
@@ -167,6 +175,7 @@ def check_safety(
         scenario_name: directory name of the scenario.
         results_root: parent directory containing scenario result folders.
         max_height: optional target max height to check liveness against.
+        num_validators: optional total validator count (n) in scenario.
         byzantine_nodes: optional set of node IDs to exclude (honest nodes only).
         write_verdict: if True, writes verdict.json into the results directory.
 
@@ -192,17 +201,26 @@ def check_safety(
             except Exception:
                 pass
 
-    if not byzantine_nodes:
+    if not byzantine_nodes or num_validators is None or max_height is None:
         sc_file = Path("config") / f"{scenario_name}.json"
         if sc_file.is_file():
             try:
                 sc_raw = json.loads(sc_file.read_text(encoding="utf-8"))
-                byz_raw = sc_raw.get("byzantine", [])
-                byzantine_nodes = [
-                    item["node"] if isinstance(item, dict) and "node" in item else item
-                    for item in byz_raw
-                    if isinstance(item, (str, dict))
-                ]
+                if num_validators is None and "num_validators" in sc_raw:
+                    num_validators = int(sc_raw["num_validators"])
+                if max_height is None and "max_height" in sc_raw:
+                    max_height = int(sc_raw["max_height"])
+                if not byzantine_nodes:
+                    byz_raw = sc_raw.get("byzantine", [])
+                    byz_set = set()
+                    for item in byz_raw:
+                        if isinstance(item, str):
+                            byz_set.add(item)
+                        elif hasattr(item, "node"):
+                            byz_set.add(item.node)
+                        elif isinstance(item, dict) and "node" in item:
+                            byz_set.add(item["node"])
+                    byzantine_nodes = sorted(byz_set)
             except Exception:
                 pass
 
@@ -210,6 +228,7 @@ def check_safety(
         nodes_data,
         scenario_name=scenario_name,
         max_height=max_height,
+        num_validators=num_validators,
         byzantine_nodes=byzantine_nodes,
     )
 
@@ -248,6 +267,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Expected max height.",
     )
     parser.add_argument(
+        "--num-validators",
+        type=int,
+        default=None,
+        help="Total validator count (n) in scenario.",
+    )
+    parser.add_argument(
         "--write-verdict",
         action="store_true",
         help="Write verdict.json into the result directory.",
@@ -275,6 +300,7 @@ def main(argv: list[str] | None = None) -> int:
             scenario_name,
             results_root=results_root,
             max_height=args.max_height,
+            num_validators=args.num_validators,
             write_verdict=args.write_verdict,
         )
     except Exception as e:
