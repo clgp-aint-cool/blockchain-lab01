@@ -70,7 +70,7 @@
 
 <main>
   <section>
-    <h2>Mạng (bấm vào node để tắt / bật)</h2>
+    <h2>Mạng (bấm vào node đang chạy để tắt)</h2>
     <svg id="ring" viewBox="0 0 440 400"></svg>
     <div class="legend">
       <span><span class="dot" style="background:var(--propose)"></span>PROPOSE</span>
@@ -218,7 +218,7 @@ function drawRing(s) {
   for (const n of s.nodes) {
     const [x, y] = pos[n.id];
     const label = n.alive ? `h${n.height} r${n.round}` : 'đã tắt';
-    svg += `<g style="cursor:pointer" onclick="toggleNode('${n.id}', ${n.alive})">
+    svg += `<g${n.alive ? ` style="cursor:pointer" onclick="stopNode('${n.id}')"` : ''}>
       <circle cx="${x}" cy="${y}" r="24" fill="${stepColor(n)}" stroke="#0f1115" stroke-width="3"/>
       <text x="${x}" y="${y + 5}" text-anchor="middle" font-weight="700" fill="#0f1115">${n.id}</text>
       <text x="${x}" y="${y + 42}" text-anchor="middle" fill="var(--muted)" font-size="12">${label}</text>
@@ -228,8 +228,8 @@ function drawRing(s) {
   $('ring').innerHTML = svg;
 }
 
-function toggleNode(id, alive) {
-  if (confirm(`${alive ? 'Tắt' : 'Bật lại'} ${id}?`)) post(`/api/node/${id}/${alive ? 'stop' : 'start'}`);
+function stopNode(id) {
+  if (confirm(`Tắt ${id}?`)) post(`/api/node/${id}/stop`);
 }
 
 function drawNodes(s) {

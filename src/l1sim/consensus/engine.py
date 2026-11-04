@@ -267,7 +267,7 @@ class ConsensusEngine:
         proposals: First valid-looking proposal (correct proposer, correct
             header signature) received for each ``(height, round)``.
         finalized: ``height -> (block, commit certificate)`` for every block this
-            engine finalized, kept for block sync and results.
+            engine finalized, kept for results and inspection.
         state: Application state after the last finalized block.
         parent_hash: Hash of the last finalized block (``GENESIS_HASH`` before
             the first one).
@@ -718,8 +718,8 @@ class ConsensusEngine:
         still finalizes when late precommits for an earlier round arrive. The
         node's own lock, round and step do not matter. If the quorum is for a
         block this node never received, it waits (logged once as
-        ``commit_waiting_for_block``); fetching that block is block sync's job
-        (PR 2). A committed block that fails local validation is never applied.
+        ``commit_waiting_for_block``) until the proposal arrives. A committed
+        block that fails local validation is never applied.
 
         Returns:
             ``True`` if a block was finalized (the engine is now at the next

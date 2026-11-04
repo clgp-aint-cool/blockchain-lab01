@@ -14,6 +14,7 @@ pytest.importorskip("devnet.net", reason="devnet/ không có trong bản nộp")
 
 from devnet.net import Devnet  # noqa: E402
 from devnet.node import NodeConfig  # noqa: E402
+from devnet.run import Api  # noqa: E402
 from l1sim.consensus.engine import TimeoutConfig  # noqa: E402
 
 TIMEOUTS = TimeoutConfig(propose_ms=800, prevote_ms=400, precommit_ms=400, delta_ms=200)
@@ -79,8 +80,14 @@ def test_survives_f_crashed_nodes(killed):
         await net.start()
         try:
             await until(lambda: net.max_common_height() >= 1)
+            api = Api(net)
             for v in killed:
-                await net.kill(v)
+                status, result = await api.handle("POST", f"/api/node/{v}/stop", {})
+                assert status == 200 and result == {"node": v, "action": "stop"}
+                assert not net.nodes[v].alive
+                status, _ = await api.handle("POST", f"/api/node/{v}/start", {})
+                assert status == 404
+                assert not net.nodes[v].alive
             start = net.max_common_height()
             # v1 là proposer của một số height: các height đó phải sang round 1.
             await until(lambda: net.max_common_height() >= start + 4, timeout=30)

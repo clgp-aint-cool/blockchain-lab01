@@ -451,7 +451,6 @@ class NodeNetwork:
         )
         self.transport.set_client_handler(self._serve_client)
         self.gossip = Gossip(node.node_id, self.transport, logger=node._event_adapter)
-        # A4 prepares the injector; binding gossip.sender belongs to task 9 (C + B).
         self.fault_injector = FaultInjector(
             node.scenario.seed,
             node.scenario.network,
@@ -463,6 +462,7 @@ class NodeNetwork:
             ),
             timeout_delta_ms=node.scenario.consensus.timeout_delta_ms,
         )
+        self.gossip.sender = self._send_with_faults
         self.peers = StaticPeers(
             node.node_id,
             node.peer_addresses,
@@ -474,6 +474,26 @@ class NodeNetwork:
             self.gossip.on(kind, self._receive)
         node.broadcast_handler = self.gossip.broadcast_nowait
         node.send_handler = self.gossip.send_to_nowait
+
+    async def _send_with_faults(self, peer: str, data: bytes) -> None:
+        """Apply deterministic faults to each outgoing link, preserving wire bytes.
+
+        Copies wait independently so their delays are relative to the same send.
+        Gossip owns the caller task and cancels pending copies during shutdown.
+        """
+        message = decode(data)
+        delays = self.fault_injector.decide(self.node.node_id, peer, message)
+
+        async def send_copy(delay_ms: int) -> None:
+            await asyncio.sleep(delay_ms / 1000)
+            await self.transport.send(peer, data)
+
+        results = await asyncio.gather(
+            *(send_copy(delay) for delay in delays), return_exceptions=True
+        )
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
 
     async def _receive(self, message: Message, from_peer: str) -> bool:
         # Gossip keeps the pending messages until consensus is explicitly activated.

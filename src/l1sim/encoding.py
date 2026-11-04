@@ -11,11 +11,7 @@ from l1sim.models import (
     CHAIN_ID,
     Block,
     BlockHeader,
-    Blocks,
-    BlockWithCertificate,
     BodyRequest,
-    CommitCertificate,
-    GetBlocks,
     Hello,
     Kind,
     Message,
@@ -103,56 +99,18 @@ def _block(value: Any) -> Block:
     )
 
 
-def _certificate(value: Any) -> CommitCertificate:
-    if not isinstance(value, dict) or set(value) != {"height", "block_hash", "precommits"}:
-        raise ValueError("invalid CommitCertificate fields")
-
-    precommits = value["precommits"]
-    if not isinstance(precommits, list):
-        raise ValueError("certificate precommits must be a list")
-
-    return CommitCertificate(
-        value["height"],
-        value["block_hash"],
-        tuple(_build(Vote, vote) for vote in precommits),
-    )
-
-
-def _blocks(value: Any) -> Blocks:
-    if not isinstance(value, dict) or set(value) != {"blocks"}:
-        raise ValueError("invalid Blocks fields")
-
-    items = value["blocks"]
-    if not isinstance(items, list):
-        raise ValueError("blocks must be a list")
-
-    result = []
-    for item in items:
-        if not isinstance(item, dict) or set(item) != {"block", "certificate"}:
-            raise ValueError("invalid block-sync item")
-        result.append(
-            BlockWithCertificate(_block(item["block"]), _certificate(item["certificate"]))
-        )
-
-    return Blocks(tuple(result))
-
-
 _PAYLOAD_TYPES = {
     Kind.TX: Tx,
     Kind.HEADER: BlockHeader,
     Kind.BODY_REQUEST: BodyRequest,
     Kind.VOTE: Vote,
     Kind.HELLO: Hello,
-    Kind.GET_BLOCKS: GetBlocks,
 }
 
 
 def _payload(kind: Kind, value: Any) -> Any:
     if kind is Kind.BODY:
         return _block(value)
-
-    if kind is Kind.BLOCKS:
-        return _blocks(value)
 
     return _build(_PAYLOAD_TYPES[kind], value)
 

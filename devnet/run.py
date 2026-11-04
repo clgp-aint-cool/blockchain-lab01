@@ -80,10 +80,10 @@ class Api:
                 delay_ms=net.faults.delay_ms,
             )
             return 200, {"drop_rate": net.faults.drop_rate, "delay_ms": net.faults.delay_ms}
-        m = re.fullmatch(r"/api/node/(V\d+)/(stop|start)", path)
+        m = re.fullmatch(r"/api/node/(V\d+)/stop", path)
         if method == "POST" and m and m[1] in net.nodes:
-            await (net.kill(m[1]) if m[2] == "stop" else net.restart(m[1]))
-            return 200, {"node": m[1], "action": m[2]}
+            await net.kill(m[1])
+            return 200, {"node": m[1], "action": "stop"}
         return 404, {"error": "not found"}
 
 

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -5,6 +6,54 @@ import pytest
 from l1sim.config import ConfigError, load_config, load_genesis, load_scenario
 
 ROOT = Path(__file__).parents[2]
+
+
+@pytest.mark.parametrize("n", [8, 9, 10, 11, 12, 13])
+def test_load_config_accepts_any_validator_count_at_least_eight(tmp_path, n):
+    from l1sim.crypto import keypair_from_seed
+
+    validators = [f"V{i}" for i in range(n)]
+    genesis = {
+        "chain_id": "lab01",
+        "seed": 42,
+        "validators": [
+            {"id": v, "public_key": keypair_from_seed(42, v).public_bytes.hex()} for v in validators
+        ],
+    }
+    scenario = {
+        "seed": 42,
+        "num_validators": n,
+        "validators": validators,
+        "max_height": 1,
+        "byzantine": [{"node": v, "behavior": "silent"} for v in validators[: (n - 1) // 3]],
+    }
+    genesis_path = tmp_path / "genesis.json"
+    scenario_path = tmp_path / "scenario.json"
+    genesis_path.write_text(json.dumps(genesis), encoding="utf-8")
+    scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
+    loaded_genesis, loaded_scenario = load_config(scenario_path, genesis_path)
+    assert loaded_genesis.validators == tuple(validators)
+    assert loaded_scenario.num_validators == n
+    assert len(loaded_scenario.byzantine) == (n - 1) // 3
+
+    scenario["byzantine"].append({"node": validators[(n - 1) // 3], "behavior": "silent"})
+    scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
+    with pytest.raises(ConfigError, match="at most f"):
+        load_scenario(scenario_path)
+
+
+@pytest.mark.parametrize("n", [1, 4, 7])
+def test_config_rejects_fewer_than_eight_validators(tmp_path, n):
+    genesis = json.loads((ROOT / "config/genesis.json").read_text())
+    genesis["validators"] = genesis["validators"][:n]
+    genesis_path = tmp_path / "genesis.json"
+    genesis_path.write_text(json.dumps(genesis), encoding="utf-8")
+    scenario_path = tmp_path / "scenario.json"
+    scenario_path.write_text(json.dumps({"seed": 42, "num_validators": n}))
+    with pytest.raises(ConfigError, match="at least 8"):
+        load_genesis(genesis_path)
+    with pytest.raises(ConfigError, match="at least 8"):
+        load_scenario(scenario_path)
 
 
 def test_load_genesis_and_t1_scenario():
@@ -68,18 +117,6 @@ def test_scenario_rejects_wrong_chain_id(tmp_path):
         load_scenario(path)
 
 
-def test_scenario_rejects_unreachable_target_degree(tmp_path):
-    path = tmp_path / "scenario.json"
-    path.write_text(
-        '{"name":"bad","seed":42,"num_validators":10,'
-        '"validators":["V0","V1","V2","V3","V4","V5","V6","V7","V8","V9"],'
-        '"max_height":1,"network":{"target_degree":10}}',
-        encoding="utf-8",
-    )
-    with pytest.raises(ConfigError, match="target_degree"):
-        load_scenario(path)
-
-
 def test_scenario_rejects_invalid_sender(tmp_path):
     path = tmp_path / "scenario.json"
     path.write_text(
@@ -102,37 +139,6 @@ def test_load_config_rejects_mismatched_pair(tmp_path):
     )
     with pytest.raises(ConfigError, match="seed"):
         load_config(scenario, ROOT / "config/genesis.json")
-
-
-def test_scenario_accepts_discovery_config(tmp_path):
-    path = tmp_path / "scenario.json"
-    path.write_text(
-        '{"name":"discovery","seed":42,"num_validators":10,'
-        '"validators":["V0","V1","V2","V3","V4","V5","V6","V7","V8","V9"],'
-        '"max_height":1,"discovery":{"multicast_group":"239.1.1.1",'
-        '"multicast_port":50000,"beacon_interval_ms":250,"target_degree":4}}',
-        encoding="utf-8",
-    )
-
-    scenario = load_scenario(path)
-
-    assert scenario.discovery.multicast_group == "239.1.1.1"
-    assert scenario.discovery.multicast_port == 50000
-    assert scenario.discovery.beacon_interval_ms == 250
-    assert scenario.discovery.target_degree == 4
-
-
-def test_scenario_rejects_invalid_discovery_group(tmp_path):
-    path = tmp_path / "scenario.json"
-    path.write_text(
-        '{"name":"bad","seed":42,"num_validators":10,'
-        '"validators":["V0","V1","V2","V3","V4","V5","V6","V7","V8","V9"],'
-        '"max_height":1,"discovery":{"multicast_group":"127.0.0.1"}}',
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ConfigError, match="multicast"):
-        load_scenario(path)
 
 
 def test_scenario_accepts_static_peer_addresses(tmp_path):

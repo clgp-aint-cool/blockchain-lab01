@@ -6,7 +6,7 @@ cùng định dạng canonical với mọi message khác. `Hello.signature` đư
 giờ dùng lại được làm chữ ký vote hay block.
 
 HELLO mang thêm `advertise_addr` và `finalized_height`; tầng trên nhận chúng qua
-`on_hello` (dùng cho block sync).
+`on_hello` để quan sát thông tin peer đã xác thực.
 
 Bên nhận kiểm theo thứ tự, lỗi đầu tiên gặp phải là reason:
 malformed → wrong_chain → unknown_peer → self_connect → bad_signature.

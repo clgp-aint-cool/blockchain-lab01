@@ -25,11 +25,26 @@ def _vote_set(keys):
 
 @pytest.mark.parametrize(
     ("n", "f", "quorum"),
-    [(1, 0, 1), (4, 1, 3), (7, 2, 5), (8, 2, 6), (10, 3, 7)],
+    [(1, 0, 1), (4, 1, 3), (7, 2, 5), (8, 2, 6), (9, 2, 7), (10, 3, 7), (11, 3, 8)],
 )
 def test_quorum_is_n_minus_f(n, f, quorum):
     assert fault_tolerance(n) == f
     assert quorum_size(n) == quorum
+
+
+@pytest.mark.parametrize("n", [8, 9, 11, 12])
+def test_non_3f_plus_1_counts_require_n_minus_f_votes(n):
+    keys = _keys(n)
+    votes = _vote_set(keys)
+    quorum = quorum_size(n)
+    for i in range(quorum - 1):
+        votes.add(_vote(keys, f"V{i}", phase=Phase.PRECOMMIT))
+    assert votes.has_quorum(1, 0, Phase.PRECOMMIT) is None
+    with pytest.raises(ValueError, match="quorum"):
+        votes.certificate(1, 0, HASH_A)
+    votes.add(_vote(keys, f"V{quorum - 1}", phase=Phase.PRECOMMIT))
+    assert votes.has_quorum(1, 0, Phase.PRECOMMIT) == HASH_A
+    assert len(votes.certificate(1, 0, HASH_A).precommits) == quorum
 
 
 def test_empty_validator_set_is_rejected():

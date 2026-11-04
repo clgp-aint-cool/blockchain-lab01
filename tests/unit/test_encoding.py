@@ -14,11 +14,7 @@ from l1sim.models import (
     GENESIS_HASH,
     Block,
     BlockHeader,
-    Blocks,
-    BlockWithCertificate,
     BodyRequest,
-    CommitCertificate,
-    GetBlocks,
     Hello,
     Kind,
     Message,
@@ -35,14 +31,6 @@ def _block(height: int) -> Block:
         BlockHeader(height, 0, GENESIS_HASH, HASH, HASH, "V0"),
         (Tx("Alice", "Alice/name", "Ada", 0),),
     )
-
-
-def _block_with_certificate(height: int) -> BlockWithCertificate:
-    block = _block(height)
-    digest = block_hash(block.header)
-    vote = Vote(Phase.PRECOMMIT, height, 0, digest, "V0")
-    certificate = CommitCertificate(height, digest, (vote,))
-    return BlockWithCertificate(block, certificate)
 
 
 def test_encoding_sorts_mapping_keys_and_round_trips_message():
@@ -96,7 +84,7 @@ def test_identifiers_are_sha256_and_block_hash_ignores_signature():
     assert domain_prefix("TX") == b"TX:lab01"
 
 
-def test_all_planned_message_kinds_round_trip():
+def test_all_supported_message_kinds_round_trip():
     block = _block(2)
     block_hash_value = block_hash(block.header)
     vote = Vote(Phase.PRECOMMIT, 2, 0, block_hash_value, "V0")
@@ -107,8 +95,6 @@ def test_all_planned_message_kinds_round_trip():
         Kind.BODY: block,
         Kind.VOTE: vote,
         Kind.HELLO: Hello("V0", "127.0.0.1:9000", CHAIN_ID, 1),
-        Kind.GET_BLOCKS: GetBlocks(2),
-        Kind.BLOCKS: Blocks((_block_with_certificate(2),)),
     }
 
     for kind, payload in payloads.items():
@@ -119,7 +105,7 @@ def test_all_planned_message_kinds_round_trip():
 
 def test_message_rejects_mismatched_payload_and_hello_identity():
     with pytest.raises(ValueError, match="payload does not match"):
-        Message(Kind.BODY_REQUEST, "V0", 2, GetBlocks(2))
+        Message(Kind.BODY_REQUEST, "V0", 2, _block(2))
     with pytest.raises(ValueError, match="HELLO node_id"):
         Message(Kind.HELLO, "V1", 0, Hello("V0", "127.0.0.1:9000", CHAIN_ID, 0))
 
@@ -129,15 +115,6 @@ def test_transaction_enforces_sender_key_ownership():
         Tx("Alice", "Bob/name", "Ada", 0)
 
 
-def test_block_with_certificate_rejects_certificate_for_another_block():
-    block = _block(2)
-    vote = Vote(Phase.PRECOMMIT, 2, 0, "b" * 64, "V0")
-    certificate = CommitCertificate(2, "b" * 64, (vote,))
-
-    with pytest.raises(ValueError, match="hash does not match"):
-        BlockWithCertificate(block, certificate)
-
-
 @pytest.mark.parametrize(
     ("kind", "payload"),
     [
@@ -145,8 +122,6 @@ def test_block_with_certificate_rejects_certificate_for_another_block():
         (Kind.BODY, _block(2)),
         (Kind.VOTE, Vote(Phase.PREVOTE, 2, 0, None, "V0")),
         (Kind.HELLO, Hello("V0", "127.0.0.1:9000", CHAIN_ID, 2)),
-        (Kind.GET_BLOCKS, GetBlocks(2)),
-        (Kind.BLOCKS, Blocks((_block_with_certificate(2),))),
     ],
 )
 def test_message_height_must_match_height_bearing_payload(kind, payload):

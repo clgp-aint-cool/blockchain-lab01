@@ -1,4 +1,4 @@
-"""Exercise authenticated TCP and Gossip with ten independent validator processes."""
+"""Exercise authenticated TCP and Gossip with independent validator processes."""
 
 import json
 import socket
@@ -27,23 +27,31 @@ def available_base_port():
 
 
 @pytest.mark.e2e
-def test_ten_processes_finalize_and_repeat_identically(tmp_path):
+@pytest.mark.parametrize(("n", "duplicate_rate"), [(8, 0.0), (9, 0.0), (10, 0.0), (10, 0.3)])
+def test_validator_processes_finalize_and_repeat_identically(tmp_path, n, duplicate_rate):
     previous = None
     for run in range(2):
         workdir = tmp_path / str(run)
         workdir.mkdir()
         base = available_base_port()
         scenario_path = ROOT / "config/t1_normal.json"
+        scenario = json.loads(scenario_path.read_text())
+        genesis = json.loads((ROOT / "config/genesis.json").read_text())
+        genesis["validators"] = genesis["validators"][:n]
+        genesis_path = workdir / "genesis.json"
+        genesis_path.write_text(json.dumps(genesis), encoding="utf-8")
+        scenario["num_validators"] = n
+        scenario["validators"] = scenario["validators"][:n]
+        scenario["network"]["duplicate_rate"] = duplicate_rate
         if run == 1:
-            scenario = json.loads(scenario_path.read_text())
             scenario["network"]["peers"] = {
-                f"V{index}": f"127.0.0.1:{base + 9 - index}" for index in range(10)
+                f"V{index}": f"127.0.0.1:{base + n - 1 - index}" for index in range(n)
             }
-            scenario_path = workdir / "scenario.json"
-            scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
+        scenario_path = workdir / "scenario.json"
+        scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
         processes = []
         try:
-            for index in range(10):
+            for index in range(n):
                 processes.append(
                     subprocess.Popen(
                         [
@@ -55,7 +63,7 @@ def test_ten_processes_finalize_and_repeat_identically(tmp_path):
                             "--scenario",
                             str(scenario_path),
                             "--genesis",
-                            str(ROOT / "config/genesis.json"),
+                            str(genesis_path),
                             "--base-port",
                             str(base),
                             "--timeout",
@@ -92,7 +100,7 @@ def test_ten_processes_finalize_and_repeat_identically(tmp_path):
                         "--scenario",
                         str(scenario_path),
                         "--genesis",
-                        str(ROOT / "config/genesis.json"),
+                        str(genesis_path),
                     ],
                     cwd=workdir,
                     capture_output=True,
@@ -110,7 +118,8 @@ def test_ten_processes_finalize_and_repeat_identically(tmp_path):
                 assert not stderr
             current = {}
             results = []
-            for index in range(10):
+            duplicate_events = 0
+            for index in range(n):
                 path = workdir / f"logs/results/t1_normal/V{index}.json"
                 current[index] = path.read_bytes()
                 result = json.loads(current[index])
@@ -120,7 +129,8 @@ def test_ten_processes_finalize_and_repeat_identically(tmp_path):
                 results.append(result)
                 events_path = workdir / f"logs/events/t1_normal/V{index}.jsonl"
                 events = [json.loads(line) for line in events_path.read_text().splitlines()]
-                assert sum(event["event"] == "conn_open" for event in events) == 9
+                duplicate_events += sum(event["event"] == "fault_duplicate" for event in events)
+                assert sum(event["event"] == "conn_open" for event in events) == n - 1
                 assert not any(event["event"] == "gossip_handler_error" for event in events)
                 assert any(
                     event["event"] == "gossip_recv" and event["accepted"] for event in events
@@ -129,6 +139,8 @@ def test_ten_processes_finalize_and_repeat_identically(tmp_path):
                 assert len(commits) == 5
                 assert sum(event["txs"] for event in commits) == 20
             assert all(result == results[0] for result in results)
+            if duplicate_rate:
+                assert duplicate_events > 0
             if previous is not None:
                 assert current == previous
             previous = current

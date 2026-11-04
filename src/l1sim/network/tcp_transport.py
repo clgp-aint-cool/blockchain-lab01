@@ -15,7 +15,7 @@ Quy ước của bản tối giản:
   chạy đồng bộ, đưa nguyên cả frame vào buffer, nên các frame không bao giờ xen lẫn.
 - Mỗi disconnect handler được gọi đúng 1 lần khi mất kết nối; không gọi khi kết nối bị
   thay bằng kết nối mới, hay khi `stop()`. Reconnect là việc của tầng trên. Có thể đăng
-  ký nhiều handler (StaticPeers, block sync, ...), gọi theo thứ tự đăng ký.
+  ký nhiều handler theo dõi kết nối, gọi theo thứ tự đăng ký.
 """
 
 from __future__ import annotations

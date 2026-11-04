@@ -38,18 +38,18 @@ class Devnet:
         self.faults = Faults(seed=seed)
         self.scenario = scenario
         self.log_root = log_root
-        # Giữ EventLogger qua các lần restart: tạo lại sẽ xoá file log cũ.
+        # Mỗi node dùng một EventLogger trong suốt lần chạy.
         self.event_logs: dict[str, EventLogger] = {}
         self.nodes: dict[str, DevNode] = {}
         self.addrs: dict[str, str] = {}
         # history[node][height] = {hash, state_hash, txs, round}: không xoá khi node tắt,
-        # để kiểm safety cả trên chain của node đã chết / bật lại.
+        # để kiểm safety cả trên chain của node đã chết.
         self.history: dict[str, dict[int, dict]] = {v: {} for v in self.keys.validators}
         self.nonces: dict[str, int] = {u: 0 for u in self.keys.users}  # nonce phía client
         self.last_tx: Tx | None = None
         self._tx_counter = 0
 
-    def _new_node(self, node_id: str, listen: str = "127.0.0.1:0") -> DevNode:
+    def _new_node(self, node_id: str) -> DevNode:
         if self.scenario and node_id not in self.event_logs:
             self.event_logs[node_id] = EventLogger(
                 node_id, self.scenario, log_root=f"{self.log_root}/events"
@@ -60,7 +60,6 @@ class Devnet:
             self.cfg,
             self.log,
             self.faults,
-            listen,
             on_finalize=self._on_finalize,
             event_log=self.event_logs.get(node_id),
         )
@@ -106,16 +105,6 @@ class Devnet:
         node = self.nodes[node_id]
         if node.alive:
             await node.stop()
-
-    async def restart(self, node_id: str) -> None:
-        """Bật lại node trên đúng cổng cũ, với state mới (chưa có block sync)."""
-        if self.nodes[node_id].alive:
-            return
-        node = self._new_node(node_id, self.addrs[node_id])
-        node.go.set()
-        await node.listen()
-        self.nodes[node_id] = node
-        await node.start(self.addrs)
 
     def _on_finalize(self, node: DevNode, block: Block, cert) -> None:
         self.history[node.id][block.header.height] = {

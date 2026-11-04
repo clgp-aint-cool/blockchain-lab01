@@ -8,7 +8,7 @@ Hai loại message:
   Message được đánh dấu đã thấy trước khi gọi handler, nên message bị từ chối sẽ không
   bao giờ được xét lại dù bản khác tới sau. Vì vậy handler chỉ được trả False cho
   message sai vĩnh viễn (chữ ký sai, height cũ, nonce cũ), không cho lý do tạm thời.
-- DIRECT (BODY_REQUEST, BODY, GET_BLOCKS, BLOCKS): gửi 1-1, không dedup, không chuyển tiếp.
+- DIRECT (BODY_REQUEST, BODY): gửi 1-1, không dedup, không chuyển tiếp.
 HELLO chỉ dùng trong handshake (hello.py), không đi qua gossip.
 
 HEADER trước BODY: node nhận HEADER hợp lệ mà chưa có body thì handler của tầng trên
@@ -35,7 +35,7 @@ from l1sim.network.events import emit
 from l1sim.network.tcp_transport import TcpTransport
 
 FLOOD = frozenset({Kind.TX, Kind.HEADER, Kind.VOTE})
-DIRECT = frozenset({Kind.BODY_REQUEST, Kind.BODY, Kind.GET_BLOCKS, Kind.BLOCKS})
+DIRECT = frozenset({Kind.BODY_REQUEST, Kind.BODY})
 
 # handler(msg, from_peer) -> True nếu hợp lệ, False chỉ khi sai vĩnh viễn (xem docstring).
 # Có thể là hàm thường hoặc async.

@@ -6,7 +6,7 @@ import pytest
 
 from l1sim.crypto import keypair_from_seed, sign
 from l1sim.encoding import encode
-from l1sim.models import CHAIN_ID, Domain, GetBlocks, Hello, Kind, Message
+from l1sim.models import CHAIN_ID, BodyRequest, Domain, Hello, Kind, Message
 from l1sim.network.hello import HelloError, check_hello, make_hello
 from tests.unit.p2p_cluster import SEED, Cluster, make_keys
 
@@ -42,7 +42,7 @@ def test_valid_hello_returns_hello():
         b"[]",
         b'{"kind":"HELLO"}',
         # Message hợp lệ nhưng không phải HELLO
-        encode(Message(Kind.GET_BLOCKS, "v1", 0, GetBlocks(0))),
+        encode(Message(Kind.BODY_REQUEST, "v1", 0, BodyRequest("0" * 64))),
         # HELLO đúng nhưng không canonical (có khoảng trắng)
         json.dumps(json.loads(make_hello("v1", SKS["v1"], ADDR)), indent=1).encode(),
     ],

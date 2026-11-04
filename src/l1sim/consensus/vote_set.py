@@ -326,7 +326,7 @@ class VoteSet:
         The certificate contains every counted PRECOMMIT for ``block_hash`` in
         the given round, sorted by voter id so that the same set of votes always
         produces the same certificate bytes. It is stored by the engine for every
-        finalized block and will be sent with blocks during block sync.
+        finalized block as evidence of finality.
 
         Args:
             height: Height of the finalized block.

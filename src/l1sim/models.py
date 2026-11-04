@@ -24,8 +24,6 @@ class Kind(str, Enum):
     BODY = "BODY"
     VOTE = "VOTE"
     HELLO = "HELLO"
-    GET_BLOCKS = "GET_BLOCKS"
-    BLOCKS = "BLOCKS"
 
 
 class Domain(str, Enum):
@@ -209,40 +207,6 @@ class Hello:
         _check_signature(self.signature)
 
 
-@dataclass(frozen=True, slots=True)
-class GetBlocks:
-    from_height: int
-
-    def __post_init__(self) -> None:
-        _check_height("from_height", self.from_height)
-
-
-@dataclass(frozen=True, slots=True)
-class BlockWithCertificate:
-    block: Block
-    certificate: CommitCertificate
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.block, Block) or not isinstance(self.certificate, CommitCertificate):
-            raise ValueError("block and certificate have invalid types")
-
-        if self.certificate.height != self.block.header.height:
-            raise ValueError("certificate height does not match block height")
-        # Delay this import because encoding imports the shared data types.
-        from l1sim.encoding import block_hash
-
-        if self.certificate.block_hash != block_hash(self.block.header):
-            raise ValueError("certificate hash does not match block header")
-
-
-@dataclass(frozen=True, slots=True)
-class Blocks:
-    blocks: tuple[BlockWithCertificate, ...]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "blocks", _tuple_of("blocks", self.blocks, BlockWithCertificate))
-
-
 _PAYLOAD_TYPES = {
     Kind.TX: Tx,
     Kind.HEADER: BlockHeader,
@@ -250,8 +214,6 @@ _PAYLOAD_TYPES = {
     Kind.BODY: Block,
     Kind.VOTE: Vote,
     Kind.HELLO: Hello,
-    Kind.GET_BLOCKS: GetBlocks,
-    Kind.BLOCKS: Blocks,
 }
 
 
@@ -260,7 +222,7 @@ class Message:
     kind: Kind
     origin: str
     height: int
-    payload: Tx | BlockHeader | BodyRequest | Block | Vote | Hello | GetBlocks | Blocks
+    payload: Tx | BlockHeader | BodyRequest | Block | Vote | Hello
 
     def __post_init__(self) -> None:
         try:
@@ -288,12 +250,6 @@ class Message:
 
         elif self.kind is Kind.HELLO:
             payload_height = self.payload.finalized_height
-
-        elif self.kind is Kind.GET_BLOCKS:
-            payload_height = self.payload.from_height
-
-        elif self.kind is Kind.BLOCKS and self.payload.blocks:
-            payload_height = self.payload.blocks[0].block.header.height
 
         if payload_height is not None and self.height != payload_height:
             raise ValueError("message height does not match payload height")
