@@ -45,8 +45,6 @@ async def run_node(
             raise ValueError("timeout must be finite and positive")
         if scenario.network.drop_rate or scenario.network.duplicate_rate:
             raise ValueError("fault injection sender integration is pending task 9 (C + B)")
-        if scenario.byzantine:
-            raise ValueError("Byzantine runtime integration is deferred; use an honest scenario")
         peers = dict(scenario.network.peers) or {
             validator: f"127.0.0.1:{base_port + index}"
             for index, validator in enumerate(genesis.validators)

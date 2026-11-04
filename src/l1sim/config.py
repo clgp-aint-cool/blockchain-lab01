@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from l1sim.consensus.byzantine import ByzantineRule, parse_byzantine
 from l1sim.models import CHAIN_ID
 
 _IDENTIFIER = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
@@ -72,7 +73,7 @@ class ScenarioConfig:
     num_validators: int
     max_height: int
     validators: tuple[str, ...]
-    byzantine: tuple[str, ...]
+    byzantine: tuple[ByzantineRule, ...]  # rules, see docs/BYZANTINE_SCHEMA.md
     warmup_ms: int
     max_txs_per_block: int
     network: NetworkConfig
@@ -210,18 +211,11 @@ def load_scenario(path: str | Path) -> ScenarioConfig:
     if any(not _IDENTIFIER.fullmatch(validator) for validator in validators):
         raise ConfigError("validator ids must be valid identifiers")
 
-    byzantine = raw.get("byzantine", [])
-    if not isinstance(byzantine, list) or any(not isinstance(item, str) for item in byzantine):
-        raise ConfigError("byzantine must be a list of validator ids")
-    byzantine = tuple(byzantine)
-    if len(set(byzantine)) != len(byzantine) or any(item not in validators for item in byzantine):
-        raise ConfigError("byzantine ids must be unique validator ids")
-
-    expected_faulty = (num_validators - 1) // 3
-    if len(byzantine) > expected_faulty:
-        raise ConfigError(
-            f"scenario has {len(byzantine)} Byzantine nodes; at most {expected_faulty} are allowed"
-        )
+    # Format and checks: docs/BYZANTINE_SCHEMA.md (at most f distinct nodes, etc.).
+    try:
+        byzantine = parse_byzantine(raw.get("byzantine", []), validators, max_height)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
     network_raw = raw.get("network", {})
     if not isinstance(network_raw, dict):
         raise ConfigError("network must be an object")

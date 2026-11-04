@@ -287,3 +287,14 @@ def test_t3_bad_and_wrong_domain_votes_are_rejected_with_a_reason():
     _assert_honest_agree(net, 2)
     reasons = {fields["reason"] for event, fields in net.events["V0"] if event == "vote_rejected"}
     assert reasons == {"bad_signature", "wrong_domain"}
+
+
+def test_second_block_of_an_equivocating_proposal_can_be_delayed():
+    net = Network(4)
+    proposer, message = _proposal_message(net, sample_txs()[:2])
+    vote = _vote_message(net, proposer)
+    rules = parse_byzantine([{"node": proposer, "behavior": "equivocate"}], net.ids, 5)
+    byz = Byzantine(proposer, rules, net.keys[proposer], conflict_delay_ms=2000)
+
+    assert [delay for delay, _ in byz.outgoing(message, State(), {})] == [0, 2000]
+    assert [delay for delay, _ in byz.outgoing(vote, State(), {})] == [0, 0]

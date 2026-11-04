@@ -237,6 +237,7 @@ class Byzantine:
         rules: Sequence[ByzantineRule],
         keypair: KeyPair,
         logger: Callable[..., None] | None = None,
+        conflict_delay_ms: int = 0,
     ) -> None:
         """Keep the rules for ``node_id`` and the key used to re-sign messages.
 
@@ -247,11 +248,20 @@ class Byzantine:
             keypair: This node's key pair (a Byzantine node signs with its own
                 key; it cannot forge other validators' signatures).
             logger: ``logger(event, **fields)``, same convention as the engine.
+            conflict_delay_ms: Delay of the second block of an equivocating
+                proposal. On a real network, which of two proposals a node
+                receives first depends on gossip timing, so prevotes could split
+                differently on every run. ``node.py`` passes 2x the longest step
+                timeout ("delay hai cực") so every honest node sees the real
+                block first and results stay reproducible (T8). Conflicting
+                votes need no delay: the counted vote is always the first one
+                on the connection, and the second is never forwarded.
         """
         self.node_id = node_id
         self.rules = tuple(rule for rule in rules if rule.node == node_id)
         self._keypair = keypair
         self._logger = logger or (lambda event, **fields: None)
+        self._conflict_delay_ms = conflict_delay_ms
 
     def outgoing(
         self, message: Message, state: State, proposals: Mapping[tuple[int, int], Block]
@@ -291,7 +301,8 @@ class Byzantine:
             return [(0, self._resign(message, rule.domain))]
         if rule.behavior == "invalid_proposal":
             return [(0, self._bad_state_hash(message))]
-        return [(0, message), (0, self._conflicting(message, state, proposals))]
+        delay = self._conflict_delay_ms if message.kind is Kind.BODY else 0
+        return [(0, message), (delay, self._conflicting(message, state, proposals))]
 
     # ------------------------------------------------------------- builders
 

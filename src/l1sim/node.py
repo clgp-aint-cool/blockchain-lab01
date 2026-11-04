@@ -10,6 +10,7 @@ from typing import Any
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from l1sim.config import GenesisConfig, ScenarioConfig
+from l1sim.consensus.byzantine import Byzantine
 from l1sim.consensus.engine import ConsensusEngine, Step, TimeoutConfig, proposer_for
 from l1sim.crypto import keypair_from_seed, verify
 from l1sim.encoding import block_hash, decode, encode, hash_with_domain
@@ -129,6 +130,24 @@ class Node:
             user_keys=self.user_keys,
             start_height=1,
         )
+        # Only a node named in the scenario's byzantine rules misbehaves; see _broadcast.
+        rules = [rule for rule in scenario.byzantine if rule.node == node_id]
+        longest_step = max(
+            scenario.consensus.timeout_propose_ms,
+            scenario.consensus.timeout_prevote_ms,
+            scenario.consensus.timeout_precommit_ms,
+        )
+        self.byzantine = (
+            Byzantine(
+                node_id,
+                rules,
+                self.keypair,
+                self._event_adapter,
+                conflict_delay_ms=2 * longest_step,
+            )
+            if rules
+            else None
+        )
 
     @staticmethod
     def _make_event_adapter(logger: Any) -> Callable[..., None]:
@@ -192,6 +211,26 @@ class Node:
         return added, "" if added else "duplicate"
 
     def _broadcast(self, message: Message) -> None:
+        """Send what the engine broadcasts, after the Byzantine rules if this node has any.
+
+        The rules run before the BODY -> HEADER split, so a second (equivocating)
+        block is also stored and can answer BODY_REQUEST. Delayed copies are sent
+        with ``loop.call_later``.
+        """
+        if self._stopped or self.completed.is_set():
+            return
+        if self.byzantine is None:
+            self._send_out(message)
+            return
+        outgoing = self.byzantine.outgoing(message, self.engine.state, self.engine.proposals)
+        for delay_ms, out in outgoing:
+            if delay_ms:
+                loop = self.loop or asyncio.get_running_loop()
+                loop.call_later(delay_ms / 1000.0, self._send_out, out)
+            else:
+                self._send_out(out)
+
+    def _send_out(self, message: Message) -> None:
         """Advertise proposal headers; send bodies only in response to requests."""
         if self._stopped or self.completed.is_set():
             return
@@ -349,8 +388,35 @@ class Node:
         self._body_waiters = {d: w for d, w in self._body_waiters.items() if d in self._headers}
 
     def write_result(self) -> Path:
-        """Write a canonical result summary for this node."""
+        """Write a canonical result summary for this node.
+
+        ``blocks`` gives, per finalized height, the block hash, the round of the
+        proposal (``round``) and of the commit (``commit_round``), the proposer,
+        the post-state hash and the transactions: T6 checks that height 2 was
+        finalized in round 1 by another proposer. ``equivocators`` lists the
+        validators caught equivocating (T7). It holds voter ids, not every
+        detected pair: whether a given conflicting vote arrives before or after
+        this node finalized that height depends on timing, so the pairs differ
+        between runs, while the set of culprits does not (T8). Each detection
+        stays in the event log as ``equivocation_detected``.
+        """
         finalized_heights = sorted(self.finalized)
+        blocks = []
+        for height in finalized_heights:
+            block, certificate = self.finalized[height]
+            blocks.append(
+                {
+                    "height": height,
+                    "hash": certificate.block_hash,
+                    "round": block.header.round,
+                    "commit_round": certificate.precommits[0].round,
+                    "proposer": block.header.proposer,
+                    "state_hash": block.header.state_hash,
+                    "txs": len(block.txs),
+                    "tx_ids": [hash_with_domain("TX", tx) for tx in block.txs],
+                }
+            )
+        equivocators = sorted({first.voter for first, _ in self.engine.votes.equivocations})
         return self.result_writer.write_node(
             self.node_id,
             {
@@ -358,10 +424,9 @@ class Node:
                 "chain_id": self.scenario.chain_id,
                 "finalized_height": max(finalized_heights, default=0),
                 "state_hash": self.engine.state.state_hash(),
-                "block_hashes": [
-                    certificate.block_hash
-                    for _, certificate in (self.finalized[h] for h in finalized_heights)
-                ],
+                "block_hashes": [block["hash"] for block in blocks],
+                "blocks": blocks,
+                "equivocators": equivocators,
             },
         )
 
