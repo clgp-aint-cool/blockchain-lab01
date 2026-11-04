@@ -32,7 +32,7 @@ Một message gửi đi bị áp dụng quy tắc khi khớp **cả** `messages`
 | Behavior | Node làm gì | Node khác thấy gì |
 |---|---|---|
 | `silent` | Không gửi message | Timeout. Proposal bị im thì cả mạng prevote NIL, sang round sau |
-| `equivocate` | Gửi **hai** bản, cả hai ký hợp lệ. Proposal: block thật và block cùng height/round nhưng **không có tx** (block thật đã rỗng thì bản thứ hai đổi `state_hash`). Vote: vote thật và vote cho block khác (vote thật là NIL thì bản thứ hai cho proposal của round, chưa có proposal thì một hash tất định; vote thật cho block thì bản thứ hai là NIL) | `proposal_conflict`, `equivocation_detected`; bản thứ hai không được đếm |
+| `equivocate` | Gửi **hai** bản, cả hai ký hợp lệ. Proposal: block thật và block cùng height/round nhưng **không có tx** (block thật đã rỗng thì bản thứ hai đổi `state_hash`). Vote: vote thật và vote cho block khác (vote thật là NIL thì bản thứ hai cho proposal của round, chưa có proposal thì một hash tất định; vote thật cho block thì bản thứ hai là NIL). Bản thứ hai của **proposal** gửi trễ 2 × timeout dài nhất, để mọi node trung thực thấy block thật trước (T8); vote xung đột gửi ngay | `proposal_conflict`, `equivocation_detected`; bản thứ hai không được đếm |
 | `bad_signature` | Gửi message với chữ ký bị sửa (đảo bit cuối) | `vote_rejected` / `proposal_rejected`, reason `bad_signature` |
 | `wrong_domain` | Ký đúng nội dung nhưng bằng `domain` khác | `vote_rejected`, reason `wrong_domain` |
 | `invalid_proposal` | Chỉ áp dụng cho `proposal`. Gửi block có `state_hash` sai (đảo bit cuối); header vẫn được ký lại hợp lệ, nên block qua được bước kiểm chữ ký và chỉ sai ở nội dung | `invalid_block`, reason `bad_state_hash`; cả mạng prevote NIL, sang round sau |
@@ -110,10 +110,17 @@ Mong đợi: cả mạng hết timeout và prevote NIL; height 4 finalize ở ro
 | Người | Việc |
 |---|---|
 | D (đã làm) | `consensus/byzantine.py`: `parse_byzantine(raw, validators, max_height)` trả về các `ByzantineRule`; `Byzantine.outgoing(message, state, proposals) -> list[tuple[int, Message]]` (truyền `engine.state` và `engine.proposals`) trả 0, 1 hoặc 2 cặp `(delay_ms, message)`, với `delay_ms = 0` là gửi ngay; mỗi lần làm sai thì log `byzantine_action` (behavior, kind, height, round). Kèm unit test |
-| A | `load_scenario` gọi `parse_byzantine`. `Node._broadcast` chạy message qua `outgoing()` **trước** bước đổi BODY thành HEADER, để block thứ hai cũng trả lời được BODY_REQUEST. Cặp có `delay_ms > 0` thì gửi bằng `loop.call_later`. Bỏ đoạn `run_node` từ chối scenario có `byzantine` |
-| B | Đổi `t6_silent_proposer.json` và `t7_byzantine.json` sang dạng mới. `check_safety` chỉ so chain của node trung thực (bỏ các `node` trong `byzantine`) |
+| A (D làm thay, PR #22) | `load_scenario` gọi `parse_byzantine`. `Node._broadcast` chạy message qua `outgoing()` **trước** bước đổi BODY thành HEADER, để block thứ hai cũng trả lời được BODY_REQUEST. Cặp có `delay_ms > 0` thì gửi bằng `loop.call_later`. Bỏ đoạn `run_node` từ chối scenario có `byzantine` |
+| B | `config/t6_silent_proposer.json` và `config/t7_byzantine.json` đã có trên PR #22 theo dạng mới (T7 `max_height` 9). Còn lại: `check_safety` chỉ so chain của node trung thực (bỏ các `node` trong `byzantine`) |
 
 ## Cần chốt
 
 1. **Equivocate gửi cả hai bản cho mọi peer** (đề xuất) hay **chia đôi mạng**? Chia đôi là tấn công mạnh hơn, nhưng `gossip.send_to` hiện chỉ gửi message DIRECT, nên phải sửa gossip. Đề xuất: làm kiểu gửi cả hai, ghi kiểu chia đôi vào phần limitations của report.
 2. **`silent` không ghi `messages`** thì node im lặng hoàn toàn, tức giống crash. T6 nên ghi `"messages": ["proposal"]` để đúng nghĩa "proposer im lặng".
+
+## Results
+
+`logs/results/<scenario>/<node>.json` có thêm:
+
+- `blocks`: mỗi height một mục `height`, `hash`, `round`, `commit_round`, `proposer`, `state_hash`, `txs` (số tx), `tx_ids`.
+- `equivocators`: các validator bị bắt equivocate, đã sort. Chỉ ghi id chứ không ghi từng cặp vote, vì cặp nào được phát hiện phụ thuộc timing; từng lần phát hiện nằm trong event log (`equivocation_detected`).
