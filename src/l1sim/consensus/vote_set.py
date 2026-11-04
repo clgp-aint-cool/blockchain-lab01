@@ -113,6 +113,8 @@ class VoteSet:
     Attributes:
         quorum: Number of matching votes needed for a quorum, from
             :func:`quorum_size` applied to the validator set size.
+        f: Fault tolerance, from :func:`fault_tolerance`. ``f + 1`` voters
+            always include at least one honest validator (round-skip).
         equivocations: Evidence of every equivocation detected, as
             ``(first_vote, conflicting_vote)`` pairs in detection order. The
             first vote is the one that is counted; the conflicting one is never
@@ -143,6 +145,7 @@ class VoteSet:
         """
         self._keys: dict[str, Ed25519PublicKey] = dict(validator_keys)
         self.quorum: int = quorum_size(len(self._keys))
+        self.f: int = fault_tolerance(len(self._keys))
         self._slots: dict[_Slot, dict[str, Vote]] = {}
         self.equivocations: list[tuple[Vote, Vote]] = []
         self._evidence: set[tuple[str, int, int, Phase, str | None]] = set()
@@ -282,6 +285,25 @@ class VoteSet:
             ``True`` if at least :attr:`quorum` validators voted NIL.
         """
         return self.count(height, round, phase, None) >= self.quorum
+
+    def voters(self, height: int, round: int) -> set[str]:
+        """Return the validators that have a counted vote of either phase in a round.
+
+        Used for round-skip: f + 1 distinct voters in a higher round prove that
+        at least one honest validator is already there. An equivocator counts
+        once, because only its first vote per slot is stored.
+
+        Args:
+            height: Block height.
+            round: Round number at that height.
+
+        Returns:
+            The set of voter ids, PREVOTE and PRECOMMIT together.
+        """
+        voters: set[str] = set()
+        for phase in Phase:
+            voters.update(self._slots.get((height, round, phase), {}))
+        return voters
 
     def rounds(self, height: int) -> list[int]:
         """Return every round of ``height`` that has at least one stored vote.

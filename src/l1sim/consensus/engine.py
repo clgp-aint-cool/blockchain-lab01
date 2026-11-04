@@ -180,17 +180,21 @@ def proposer_for(validators: Sequence[str] | Mapping[str, object], height: int, 
 
 
 class ConsensusEngine:
-    """Round-based BFT state machine for one validator (Tendermint style, no locking yet).
+    """Round-based BFT state machine for one validator (Tendermint style, with locking).
 
     One engine runs inside each node. For every height it goes through rounds,
     and every round goes through three steps:
 
     1. **Propose**: the round's proposer (:func:`proposer_for`) builds a block
        from the mempool, signs the header with ``Domain.HEADER`` and broadcasts
-       it. Everyone else waits ``timeout_propose``.
-    2. **Prevote**: a node prevotes the block if it is valid (rule 3, via
-       :func:`l1sim.execution.validate_block`), otherwise NIL. If no proposal
-       arrives before the propose timeout, it prevotes NIL.
+       it. A proposer that is locked, or knows a block with a polka from an
+       earlier round, broadcasts that block again instead (re-proposal).
+       Everyone else waits ``timeout_propose``.
+    2. **Prevote**: see :meth:`_decide_prevote`. Unlocked, a node prevotes the
+       proposal if it is valid (rule 3, via
+       :func:`l1sim.execution.validate_block`), otherwise NIL; if no proposal
+       arrives before the propose timeout, it prevotes NIL. Locked, it prevotes
+       its locked block (rules 4–5).
     3. **Precommit**: when the node sees 2f+1 PREVOTEs for block B in its
        current round (a polka) *and* it has B and B is valid, it precommits B.
        The decision follows the polka the node sees, not its own prevote. On a
@@ -213,9 +217,25 @@ class ConsensusEngine:
     - Rule 6: votes are only ever signed for the engine's own current height and
       round, with ``Domain.VOTE``.
     - Rule 7 and equivocation: delegated to :class:`VoteSet`.
-    - Rules 4–5 (locking) are **not** implemented yet. :attr:`locked_block`,
-      :attr:`locked_round` and the single decision point
-      :meth:`_decide_prevote` are where PR 2 adds them.
+    - Rules 4–5 (locking): precommitting block B on a polka in round r locks B
+      (:attr:`locked_block` = B, :attr:`locked_round` = r). The lock survives
+      round changes and is cleared only when the height is finalized. A locked
+      node prevotes B in every later round, and moves to another block P only
+      after seeing a polka for P in a round newer than :attr:`locked_round`.
+      If B may have been finalized somewhere, at least f + 1 honest nodes are
+      locked on B, so no other block can reach a polka (Concept Guide,
+      "Locking chi tiết").
+
+    **Liveness helpers**
+
+    - Re-proposal: a block that had a polka in an earlier round of this height
+      is the latest "valid" block (Tendermint ``validValue``). Prevoting it, and
+      broadcasting it again when proposing, lets honest nodes that are locked
+      on it and the others converge after GST. It does not change safety,
+      which only relies on what locked nodes prevote.
+    - Round-skip: votes from f + 1 distinct validators in a higher round of
+      the current height make the engine jump to that round, so a node that
+      fell behind does not wait for its own timeouts (:meth:`_round_to_skip_to`).
 
     **Isolation**
 
@@ -238,8 +258,9 @@ class ConsensusEngine:
         height: Height currently being decided. Starts at ``start_height``.
         round: Current round at :attr:`height`.
         step: Current :class:`Step` in :attr:`round`.
-        locked_block: Placeholder for PR 2 (rules 4–5). Always ``None`` here.
-        locked_round: Placeholder for PR 2. ``-1`` means "not locked".
+        locked_block: Block this node precommitted on a polka at the current
+            height (rules 4–5), or ``None`` when not locked.
+        locked_round: Round of that polka. ``-1`` means "not locked".
         signed_votes: Every vote this node signed at the current height, keyed
             by ``(height, round, phase)``. Used to enforce rule 1–2.
         votes: The :class:`VoteSet` holding all received and own votes.
@@ -339,7 +360,7 @@ class ConsensusEngine:
         self.round = 0
         self.step = Step.PROPOSE
 
-        # Rules 4-5 (PR 2): set on a polka, consulted only in _decide_prevote.
+        # Rules 4-5: set in _precommit, consulted in _decide_prevote and _propose.
         self.locked_block: Block | None = None
         self.locked_round = -1
 
@@ -530,13 +551,20 @@ class ConsensusEngine:
     # --------------------------------------------------------------- decisions
 
     def _decide_prevote(self, block: Block | None) -> str | None:
-        """Decide what to prevote for the current round's proposal (the only place).
+        """Decide what to prevote in the current round (the only place).
 
-        Today this is rule 3 only: prevote the block if it is valid, otherwise
-        NIL. Keeping the decision in one function is deliberate: PR 2 adds
-        locking (rules 4–5) here, e.g. "if :attr:`locked_block` is set, prevote
-        it unless there is a newer polka for the proposal", without touching any
-        other code path.
+        In order:
+
+        1. Locked on B (rules 4–5): prevote B, unless some block P had a polka
+           in a round newer than :attr:`locked_round`; then prevote P. Seeing
+           that newer polka proves B was not finalized, because f + 1 honest
+           nodes locked on a finalized B would never prevote another block.
+        2. Not locked, but a block had a polka in an earlier round of this
+           height: prevote the latest such block (re-proposal, for liveness).
+        3. Otherwise rule 3: prevote the proposal if it is valid, else NIL.
+
+        Polkas for a block this node does not have, or that is invalid, are
+        ignored, because the node could not precommit or finalize it anyway.
 
         Args:
             block: The proposal for ``(height, round)``, or ``None`` when the
@@ -545,9 +573,52 @@ class ConsensusEngine:
         Returns:
             The block hash to prevote, or ``None`` for NIL.
         """
+        polka = self._latest_polka()
+        if self.locked_block is not None:
+            if polka is not None and polka[0] > self.locked_round:
+                return block_hash(polka[1].header)
+            return block_hash(self.locked_block.header)
+        if polka is not None:
+            return block_hash(polka[1].header)
         if block is None or not self._is_valid(block):
             return None
         return block_hash(block.header)
+
+    def _latest_polka(self) -> tuple[int, Block] | None:
+        """Return the newest earlier round of this height with a polka for a block we can use.
+
+        Rounds are scanned from newest to oldest, skipping the current round
+        (its polka is handled by the precommit rule in :meth:`_progress`).
+
+        Returns:
+            ``(round, block)`` for the newest polka whose block this node has and
+            considers valid, or ``None``.
+        """
+        for round in reversed(self.votes.rounds(self.height)):
+            if round >= self.round:
+                continue
+            digest = self.votes.has_quorum(self.height, round, Phase.PREVOTE)
+            block = self._blocks.get(digest) if digest else None
+            if block is not None and self._is_valid(block):
+                return round, block
+        return None
+
+    def _round_to_skip_to(self) -> int | None:
+        """Return the highest round of this height that f + 1 validators have reached, if ahead.
+
+        f + 1 distinct voters include at least one honest validator, so that
+        round is really in progress and this node is behind. Byzantine votes
+        alone (at most f voters) can never trigger a skip.
+
+        Returns:
+            A round higher than :attr:`round`, or ``None``.
+        """
+        for round in reversed(self.votes.rounds(self.height)):
+            if round <= self.round:
+                return None
+            if len(self.votes.voters(self.height, round)) >= self.votes.f + 1:
+                return round
+        return None
 
     def _is_valid(self, block: Block) -> bool:
         """Return whether ``block`` is valid at the current height (rule 3).
@@ -595,8 +666,11 @@ class ConsensusEngine:
         round). Each pass tries, in order:
 
         1. finalize (2f+1 PRECOMMITs for a block we have, in any round);
-        2. in PROPOSE: prevote once the round's proposal is known;
-        3. in PREVOTE: precommit B on a polka for B when we have B and it is
+        2. round-skip: jump to a higher round that f + 1 validators reached;
+        3. in PROPOSE: prevote once the round's proposal is known, or at once
+           when locked or when an earlier round had a polka (nothing to wait
+           for: :meth:`_decide_prevote` ignores the new proposal then);
+        4. in PREVOTE: precommit B on a polka for B when we have B and it is
            valid; precommit NIL on a NIL polka.
 
         Signing a vote adds it to our own :class:`VoteSet`, which can complete a
@@ -608,10 +682,20 @@ class ConsensusEngine:
             if self._try_finalize():
                 continue
 
+            skip = self._round_to_skip_to()
+            if skip is not None:
+                self._log("round_skip", to_round=skip)
+                self._enter_round(skip)
+                continue
+
             height, round = self.height, self.round
             if self.step is Step.PROPOSE:
                 block = self.proposals.get((height, round))
-                if block is not None:
+                if (
+                    block is not None
+                    or self.locked_block is not None
+                    or self._latest_polka() is not None
+                ):
                     self._prevote(self._decide_prevote(block))
                     continue
 
@@ -691,9 +775,20 @@ class ConsensusEngine:
         the transactions and compare. The header is signed with
         ``Domain.HEADER``.
 
-        PR 2: when locked, the proposer should re-propose the locked block
-        instead of building a new one.
+        Re-proposal: if this node is locked, or an earlier round of this height
+        had a polka, it broadcasts the block it would prevote
+        (:meth:`_decide_prevote`) again instead of building a new one. That
+        block keeps its original header (round, proposer, signature), so its
+        hash does not change and nodes locked on it can still prevote it. It is
+        logged as ``repropose``.
         """
+        if self.locked_block is not None or self._latest_polka() is not None:
+            digest = self._decide_prevote(None)
+            block = self._blocks[digest]
+            self._log("repropose", block_hash=digest, block_round=block.header.round)
+            self._broadcast(Message(Kind.BODY, self.node_id, self.height, block))
+            return
+
         txs = self._mempool.take(self.state, self._max_txs)
         header = BlockHeader(
             height=self.height,
@@ -748,13 +843,19 @@ class ConsensusEngine:
     def _precommit(self, block_hash: str | None) -> None:
         """Sign and send this round's PRECOMMIT, then move to the PRECOMMIT step.
 
-        PR 2: precommitting a block on a polka is where the lock is taken
-        (``locked_block = B``, ``locked_round = round``).
+        Precommitting a block happens only on a polka in the current round, and
+        that is where the lock is taken or moved (rule 4):
+        ``locked_block = B``, ``locked_round = round``. A NIL precommit keeps the
+        existing lock: a timeout never releases it.
 
         Args:
             block_hash: The block to precommit, or ``None`` for NIL.
         """
-        self._sign_vote(Phase.PRECOMMIT, block_hash)
+        vote = self._sign_vote(Phase.PRECOMMIT, block_hash)
+        if vote is not None and block_hash is not None:
+            self.locked_block = self._blocks[block_hash]
+            self.locked_round = self.round
+            self._log("lock", block_hash=block_hash)
         self.step = Step.PRECOMMIT
         self._schedule(Step.PRECOMMIT)
 
