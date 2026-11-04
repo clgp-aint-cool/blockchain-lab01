@@ -289,3 +289,33 @@ def test_check_safety_bft_quorum_with_dead_node():
     assert res["reached_max_height"] is True
     assert res["safety_ok"] is True
     assert res["same_state_at_common_height"] is True
+
+
+def test_check_safety_ignores_byzantine_nodes():
+    # V0..V6 are honest, V7 is Byzantine with conflicting state/block
+    node_data = {
+        f"V{i}": {
+            "node_id": f"V{i}",
+            "finalized_height": 5,
+            "state_hash": "honest_state",
+            "block_hashes": [f"hash_{h}" for h in range(1, 6)],
+        }
+        for i in range(7)
+    }
+    node_data["V7"] = {
+        "node_id": "V7",
+        "finalized_height": 5,
+        "state_hash": "corrupt_state",
+        "block_hashes": ["bad_hash_1"],
+    }
+    # Without excluding V7: fails due to state mismatch / safety violation
+    res_fail = check_safety_for_nodes(node_data, scenario_name="test_byz", max_height=5)
+    assert res_fail["pass"] is False
+
+    # With excluding V7: passes
+    res_ok = check_safety_for_nodes(
+        node_data, scenario_name="test_byz", max_height=5, byzantine_nodes=["V7"]
+    )
+    assert res_ok["pass"] is True
+    assert res_ok["same_state_at_common_height"] is True
+    assert res_ok["safety_ok"] is True

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,7 @@ def check_safety_for_nodes(
     *,
     scenario_name: str = "unknown",
     max_height: int | None = None,
+    byzantine_nodes: Collection[str] = (),
 ) -> dict[str, Any]:
     """Verify safety and state consistency across an in-memory dictionary of node results.
 
@@ -24,6 +25,7 @@ def check_safety_for_nodes(
         nodes_data: mapping of node_id -> node result dictionary (as written by ResultWriter).
         scenario_name: name of the scenario.
         max_height: target height required to pass liveness.
+        byzantine_nodes: optional set of node IDs to exclude from consistency checks.
 
     Returns:
         dict containing verdict fields:
@@ -38,6 +40,9 @@ def check_safety_for_nodes(
           - total_txs: int
           - pass: bool
     """
+    if byzantine_nodes:
+        nodes_data = {v: d for v, d in nodes_data.items() if v not in byzantine_nodes}
+
     if not nodes_data:
         return {
             "scenario": scenario_name,
@@ -153,6 +158,7 @@ def check_safety(
     results_root: str | Path = "logs/results",
     *,
     max_height: int | None = None,
+    byzantine_nodes: Collection[str] = (),
     write_verdict: bool = False,
 ) -> dict[str, Any]:
     """Read node result files under results_root/scenario_name and perform safety check.
@@ -161,6 +167,7 @@ def check_safety(
         scenario_name: directory name of the scenario.
         results_root: parent directory containing scenario result folders.
         max_height: optional target max height to check liveness against.
+        byzantine_nodes: optional set of node IDs to exclude (honest nodes only).
         write_verdict: if True, writes verdict.json into the results directory.
 
     Returns:
@@ -185,7 +192,26 @@ def check_safety(
             except Exception:
                 pass
 
-    verdict = check_safety_for_nodes(nodes_data, scenario_name=scenario_name, max_height=max_height)
+    if not byzantine_nodes:
+        sc_file = Path("config") / f"{scenario_name}.json"
+        if sc_file.is_file():
+            try:
+                sc_raw = json.loads(sc_file.read_text(encoding="utf-8"))
+                byz_raw = sc_raw.get("byzantine", [])
+                byzantine_nodes = [
+                    item["node"] if isinstance(item, dict) and "node" in item else item
+                    for item in byz_raw
+                    if isinstance(item, (str, dict))
+                ]
+            except Exception:
+                pass
+
+    verdict = check_safety_for_nodes(
+        nodes_data,
+        scenario_name=scenario_name,
+        max_height=max_height,
+        byzantine_nodes=byzantine_nodes,
+    )
 
     if write_verdict:
         writer = ResultWriter(scenario_name, results_root=results_root)
