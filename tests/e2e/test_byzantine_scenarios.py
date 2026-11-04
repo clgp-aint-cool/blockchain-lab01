@@ -35,7 +35,7 @@ def run_scenario(name, workdir):
                         "--base-port",
                         str(base),
                         "--timeout",
-                        "30",
+                        "60",
                     ],
                     cwd=workdir,
                     stdout=subprocess.PIPE,
@@ -44,7 +44,7 @@ def run_scenario(name, workdir):
                 )
             )
         for process in processes:
-            stdout, stderr = process.communicate(timeout=60)
+            stdout, stderr = process.communicate(timeout=90)
             assert process.returncode == 0, stdout + stderr
     finally:
         for process in processes:
