@@ -573,16 +573,28 @@ class ConsensusEngine:
         Returns:
             The block hash to prevote, or ``None`` for NIL.
         """
-        polka = self._latest_polka()
-        if self.locked_block is not None:
-            if polka is not None and polka[0] > self.locked_round:
-                return block_hash(polka[1].header)
-            return block_hash(self.locked_block.header)
-        if polka is not None:
-            return block_hash(polka[1].header)
+        followed = self._followed_polka()
+        if followed is not None:
+            return block_hash(followed[1].header)
         if block is None or not self._is_valid(block):
             return None
         return block_hash(block.header)
+
+    def _followed_polka(self) -> tuple[int, Block] | None:
+        """Return the earlier polka that cases 1–2 of :meth:`_decide_prevote` follow.
+
+        That is the lock's own polka (``(locked_round, locked_block)``) unless a
+        newer one exists, else the latest polka of this height. The same polka
+        decides the re-proposal and the polka evidence sent on a new round.
+
+        Returns:
+            ``(round, block)``, or ``None`` when the node is not locked and knows
+            no earlier polka (case 3).
+        """
+        polka = self._latest_polka()
+        if self.locked_block is not None and (polka is None or polka[0] <= self.locked_round):
+            return self.locked_round, self.locked_block
+        return polka
 
     def _latest_polka(self) -> tuple[int, Block] | None:
         """Return the newest earlier round of this height with a polka for a block we can use.
@@ -691,11 +703,7 @@ class ConsensusEngine:
             height, round = self.height, self.round
             if self.step is Step.PROPOSE:
                 block = self.proposals.get((height, round))
-                if (
-                    block is not None
-                    or self.locked_block is not None
-                    or self._latest_polka() is not None
-                ):
+                if block is not None or self._followed_polka() is not None:
                     self._prevote(self._decide_prevote(block))
                     continue
 
@@ -746,7 +754,8 @@ class ConsensusEngine:
         """Switch to ``round`` at the current height without running the rules.
 
         Sets the step to PROPOSE, logs ``new_round``, schedules the propose
-        timeout and, if this node is the proposer, proposes. Used by
+        timeout, sends the polka evidence (:meth:`_send_polka_evidence`) and,
+        if this node is the proposer, proposes. Used by
         :meth:`start_round`, by the precommit timeout and after finalizing.
 
         Args:
@@ -762,8 +771,36 @@ class ConsensusEngine:
         proposer = proposer_for(self._validators, self.height, round)
         self._log("new_round", proposer=proposer)
         self._schedule(Step.PROPOSE)
+        self._send_polka_evidence()
         if proposer == self.node_id:
             self._propose()
+
+    def _send_polka_evidence(self) -> None:
+        """Rebroadcast the PREVOTEs of the polka this node follows (liveness).
+
+        A polka may have reached only some nodes: they lock on B, the others
+        never learn that B had a polka, so the two groups keep voting
+        differently and no round reaches a quorum. Gossip does not resend lost
+        votes, so on every new round a node that follows an earlier polka
+        (:meth:`_followed_polka`) sends its 2f + 1 signed PREVOTEs again. The
+        others check each signature, see the polka and prevote B by case 2 of
+        :meth:`_decide_prevote`. The votes are the real ones, so this cannot
+        create a polka that did not happen.
+
+        Each vote goes out as a normal ``VOTE`` message with this node as
+        ``origin``, so its message id differs from the voter's own and gossip
+        does not drop it as already seen. Nodes that already count a vote get
+        a duplicate and do not forward it. Logged as ``polka_evidence``.
+        """
+        followed = self._followed_polka()
+        if followed is None:
+            return
+        polka_round, block = followed
+        digest = block_hash(block.header)
+        prevotes = self.votes.votes_for(self.height, polka_round, Phase.PREVOTE, digest)
+        self._log("polka_evidence", polka_round=polka_round, block_hash=digest, votes=len(prevotes))
+        for vote in prevotes:
+            self._broadcast(Message(Kind.VOTE, self.node_id, self.height, vote))
 
     def _propose(self) -> None:
         """Build, sign, store and broadcast this node's proposal for the current round.
@@ -782,9 +819,10 @@ class ConsensusEngine:
         hash does not change and nodes locked on it can still prevote it. It is
         logged as ``repropose``.
         """
-        if self.locked_block is not None or self._latest_polka() is not None:
-            digest = self._decide_prevote(None)
-            block = self._blocks[digest]
+        followed = self._followed_polka()
+        if followed is not None:
+            block = followed[1]
+            digest = block_hash(block.header)
             self._log("repropose", block_hash=digest, block_round=block.header.round)
             self._broadcast(Message(Kind.BODY, self.node_id, self.height, block))
             return

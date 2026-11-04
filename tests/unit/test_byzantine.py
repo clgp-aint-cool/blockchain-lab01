@@ -63,6 +63,8 @@ def test_invalid_proposal_defaults_to_proposals_and_delay_keeps_its_delay():
         [{"node": "V2", "behavior": "explode"}],
         [{"node": "V2", "behavior": "silent", "messages": []}],
         [{"node": "V2", "behavior": "silent", "messages": ["tx"]}],
+        [{"node": "V2", "behavior": "silent", "messages": [{}]}],  # unhashable elements
+        [{"node": "V2", "behavior": "silent", "messages": [["prevote"]]}],
         [{"node": "V2", "behavior": "silent", "heights": [0]}],
         [{"node": "V2", "behavior": "silent", "heights": [6]}],
         [{"node": "V2", "behavior": "silent", "heights": [True]}],
@@ -71,6 +73,7 @@ def test_invalid_proposal_defaults_to_proposals_and_delay_keeps_its_delay():
         [{"node": "V2", "behavior": "silent", "rounds": [-1]}],
         [{"node": "V2", "behavior": "silent", "domain": "TX"}],
         [{"node": "V2", "behavior": "wrong_domain", "domain": "VOTE"}],
+        [{"node": "V2", "behavior": "wrong_domain", "domain": []}],
         [{"node": "V2", "behavior": "invalid_proposal", "messages": ["prevote"]}],
         [{"node": "V2", "behavior": "delay"}],
         [{"node": "V2", "behavior": "delay", "delay_ms": 0}],

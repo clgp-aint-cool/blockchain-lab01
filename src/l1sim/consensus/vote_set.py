@@ -320,6 +320,29 @@ class VoteSet:
         """
         return sorted({round for h, round, _ in self._slots if h == height})
 
+    def votes_for(
+        self, height: int, round: int, phase: Phase, block_hash: str | None
+    ) -> tuple[Vote, ...]:
+        """Return the counted votes for ``block_hash`` in one slot, sorted by voter id.
+
+        The engine rebroadcasts the PREVOTEs of a polka with this (polka
+        evidence), and :meth:`certificate` builds on it. Sorting by voter makes
+        the result, and so what is sent, the same on every run.
+
+        Args:
+            height: Block height.
+            round: Round number at that height.
+            phase: PREVOTE or PRECOMMIT.
+            block_hash: The block hash, or ``None`` for NIL votes.
+
+        Returns:
+            The signed votes, possibly empty.
+        """
+        votes = self._slots.get((height, round, phase), {})
+        return tuple(
+            votes[voter] for voter in sorted(votes) if votes[voter].block_hash == block_hash
+        )
+
     def certificate(self, height: int, round: int, block_hash: str) -> CommitCertificate:
         """Build the commit certificate proving that ``block_hash`` was finalized.
 
@@ -343,10 +366,7 @@ class VoteSet:
             ValueError: If fewer than :attr:`quorum` validators precommitted
                 ``block_hash`` in that round.
         """
-        votes = self._slots.get((height, round, Phase.PRECOMMIT), {})
-        precommits = tuple(
-            votes[voter] for voter in sorted(votes) if votes[voter].block_hash == block_hash
-        )
+        precommits = self.votes_for(height, round, Phase.PRECOMMIT, block_hash)
         if len(precommits) < self.quorum:
             raise ValueError(
                 f"only {len(precommits)} precommits for this block, quorum is {self.quorum}"

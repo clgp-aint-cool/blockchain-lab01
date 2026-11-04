@@ -396,7 +396,11 @@ class Network:
         return [block_hash(block.header) for block, _ in self.finalized[node]]
 
     def votes_sent(self, node: str) -> list[Vote]:
-        """Return every vote ``node`` broadcast, in order.
+        """Return every vote ``node`` signed and broadcast, in order.
+
+        Votes ``node`` only rebroadcasts as polka evidence are left out: other
+        validators' votes are not its own, and its own vote sent again is
+        listed once.
 
         Args:
             node: Id of the engine.
@@ -404,11 +408,14 @@ class Network:
         Returns:
             List of votes signed by ``node``.
         """
-        return [
-            message.payload
-            for src, message in self.sent
-            if src == node and message.kind is Kind.VOTE
-        ]
+        votes: list[Vote] = []
+        for src, message in self.sent:
+            if src != node or message.kind is not Kind.VOTE:
+                continue
+            vote = message.payload
+            if vote.voter == node and vote not in votes:
+                votes.append(vote)
+        return votes
 
     def event_names(self, node: str) -> list[str]:
         """Return the event types logged by ``node``, in order.

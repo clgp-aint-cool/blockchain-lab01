@@ -150,6 +150,8 @@ def _parse_rule(
     if (
         not isinstance(messages, list)
         or not messages
+        # Strings first: set() raises TypeError on a list or dict element.
+        or not all(isinstance(kind, str) for kind in messages)
         or len(set(messages)) != len(messages)
         or any(kind not in MESSAGES for kind in messages)
     ):
@@ -168,7 +170,7 @@ def _parse_rule(
     if "domain" in entry:
         if behavior != "wrong_domain":
             raise ValueError(f"{where}.domain is only used with wrong_domain")
-        if entry["domain"] not in WRONG_DOMAINS:
+        if not isinstance(entry["domain"], str) or entry["domain"] not in WRONG_DOMAINS:
             raise ValueError(f"{where}.domain must be one of {', '.join(WRONG_DOMAINS)}")
         domain = WRONG_DOMAINS[entry["domain"]]
 
@@ -371,10 +373,14 @@ class Byzantine:
 
 
 def _describe(message: Message) -> tuple[str | None, int, int]:
-    """Return ``(kind, height, round)`` for a proposal or vote, ``(None, 0, 0)`` otherwise."""
+    """Return ``(kind, height, round)`` for a proposal or vote, ``(None, 0, 0)`` otherwise.
+
+    Another validator's vote that this node only rebroadcasts (polka evidence)
+    is not this node's own message, so no rule applies to it.
+    """
     if message.kind is Kind.BODY:
         return "proposal", message.payload.header.height, message.payload.header.round
-    if message.kind is Kind.VOTE:
+    if message.kind is Kind.VOTE and message.payload.voter == message.origin:
         vote = message.payload
         return vote.phase.value.lower(), vote.height, vote.round
     return None, 0, 0

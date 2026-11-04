@@ -576,6 +576,46 @@ def test_locking_keeps_safety_when_round_0_precommits_are_lost():
     _assert_no_double_sign(net)
 
 
+def _partial_polka_network():
+    """PR #22 review, P1: 10 honest nodes, only V0–V3 get the round-0 prevotes.
+
+    V0–V3 see the polka for the round-0 block and lock it; every round-0
+    precommit is lost. From round 1 on, everything is delivered.
+    """
+    lockers = {"V0", "V1", "V2", "V3"}
+    net = None
+
+    def drop(src, dst, message):
+        if message.kind is not Kind.VOTE or net.engines[src].round != 0:
+            return False
+        return message.payload.phase is Phase.PRECOMMIT or dst not in lockers
+
+    net = Network(10, txs=sample_txs(), drop=drop)
+    return net, lockers
+
+
+def test_polka_evidence_lets_nodes_that_missed_the_polka_converge():
+    net, lockers = _partial_polka_network()
+    net.start()
+
+    assert net.run_until_height(1, max_ms=30_000)
+    assert len({net.hashes(node)[0] for node in net.ids}) == 1
+    block = net.finalized["V0"][0][0]
+    assert block.header.round == 0  # the block V0–V3 locked, not a newer one
+    assert all(net.finalized[node][0][1].precommits[0].round <= 2 for node in net.ids)
+    assert all("polka_evidence" in net.event_names(node) for node in lockers)
+    _assert_no_double_sign(net)
+
+
+def test_without_polka_evidence_the_partial_polka_stalls(monkeypatch):
+    """Control for the test above: the old behaviour never finalizes height 1."""
+    monkeypatch.setattr(ConsensusEngine, "_send_polka_evidence", lambda self: None)
+    net, _ = _partial_polka_network()
+    net.start()
+
+    assert not net.run_until_height(1, max_ms=30_000)
+
+
 def test_round_skip_needs_f_plus_one_validators_in_the_higher_round():
     net = Network(4, drop=lambda src, dst, message: True)
     net.start(only=["V0"])
