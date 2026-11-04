@@ -2,31 +2,32 @@
 
 from __future__ import annotations
 
-import subprocess
-import sys
+from pathlib import Path
 
 import pytest
 
-from tests.check_safety import check_safety
+from l1sim.launch_local import available_base_port, launch_local
+
+ROOT = Path(__file__).parents[2]
 
 pytestmark = pytest.mark.e2e
 
 
-def test_t4_replay_tx():
+def test_t4_replay_tx(tmp_path: Path):
     """Verify that transactions replayed across nodes only finalize once."""
-    cmd = [
-        sys.executable,
-        "-X",
-        "utf8",
-        "devnet/run.py",
-        "--scenario",
-        "config/t4_replay_tx.json",
-        "--headless",
-    ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    assert res.returncode == 0, f"Devnet run failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+    base_port = available_base_port(count=10, start=19600, end=25000)
+    verdict = launch_local(
+        scenario_path=ROOT / "config/t4_replay_tx.json",
+        genesis_path=ROOT / "config/genesis.json",
+        base_port=base_port,
+        timeout=30.0,
+        results_root=tmp_path / "results",
+        quiet=True,
+    )
 
-    verdict = check_safety("t4_replay_tx", results_root="logs/results")
+    assert verdict["pass"] is True
     assert verdict["safety_ok"] is True
     assert verdict["same_state_at_common_height"] is True
-    assert verdict["pass"] is True
+    assert verdict["common_height"] == 5
+    assert verdict["reached_max_height"] is True
+    assert verdict["safety_violations"] == []

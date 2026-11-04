@@ -24,9 +24,9 @@
     "target_degree": 4
   },
   "consensus": {
-    "timeout_propose_ms": 1500,
-    "timeout_prevote_ms": 1500,
-    "timeout_precommit_ms": 1500,
+    "timeout_propose_ms": 2000,
+    "timeout_prevote_ms": 2000,
+    "timeout_precommit_ms": 2000,
     "timeout_delta_ms": 500
   },
   "transactions": [

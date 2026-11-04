@@ -263,3 +263,29 @@ def test_check_safety_node_py_format():
     assert res["safety_violations"] == []
     assert res["same_state_at_common_height"] is True
     assert res["common_height"] == 2
+
+
+def test_check_safety_bft_quorum_with_dead_node():
+    # 10 validators (f=3): V0..V8 reach height 5, V9 died at height 2.
+    # BFT quorum n - f = 7 nodes reached height 5 -> common_height is 5.
+    node_data = {
+        f"V{i}": {
+            "node_id": f"V{i}",
+            "finalized_height": 5,
+            "state_hash": "state_h5",
+            "block_hashes": [f"hash_{h}" for h in range(1, 6)],
+        }
+        for i in range(9)
+    }
+    node_data["V9"] = {
+        "node_id": "V9",
+        "finalized_height": 2,
+        "state_hash": "state_h2",
+        "block_hashes": ["hash_1", "hash_2"],
+    }
+    res = check_safety_for_nodes(node_data, scenario_name="test_d2_quorum", max_height=5)
+    assert res["pass"] is True
+    assert res["common_height"] == 5
+    assert res["reached_max_height"] is True
+    assert res["safety_ok"] is True
+    assert res["same_state_at_common_height"] is True

@@ -88,11 +88,11 @@ Việc thêm của **D** để liveness vững:
 7. ZeroTier.
 
 **B**:
-1. PR `feat/network-faults`.
-2. `check_safety.py`, `launch_local.py`.
-3. `check_reproducible.py`, sửa `check_determinism.sh`.
-4. Scenario t2..t8, d1..d3; kill/restart theo height.
-5. Owner T4, T5, T8.
+1. PR `feat/network-faults` — **ĐÃ MERGE** vào `main` (PR #17).
+2. `check_safety.py`, `launch_local.py` — **ĐÃ XONG** (trên branch `feat/verification-and-scenarios`).
+3. `check_reproducible.py`, sửa `check_determinism.sh` — **ĐÃ XONG** (chạy bằng `launch_local.py`, byte-identical).
+4. Scenario t2..t8, d1..d3; kill/restart theo height — **ĐÃ XONG** (config đầy đủ, `launch_local` điều phối actions).
+5. Owner T4, T5, T8 — **ĐÃ XONG** (toàn bộ tests e2e đã pass).
 
 **C**:
 1. Merge PR #16.

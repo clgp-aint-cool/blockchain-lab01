@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 
@@ -14,6 +15,8 @@ pytestmark = pytest.mark.e2e
 
 def test_t5_pre_gst():
     """Verify that network faults before GST preserve safety and progress resumes after GST."""
+    shutil.rmtree("logs/results/t5_pre_gst", ignore_errors=True)
+    shutil.rmtree("logs/events/t5_pre_gst", ignore_errors=True)
     cmd = [
         sys.executable,
         "-X",

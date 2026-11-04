@@ -125,6 +125,34 @@ def test_launch_local_mocked_no_check(tmp_path: Path):
         assert verdict["status"] == "completed"
 
 
+def test_launch_local_actions_kill_and_restart(tmp_path: Path):
+    scenario_path = ROOT / "config/d3_restart.json"
+    genesis_path = ROOT / "config/genesis.json"
+
+    def make_mock(*args, **kwargs):
+        p = MagicMock()
+        p.poll.return_value = 0
+        return p
+
+    with (
+        patch("subprocess.Popen", side_effect=make_mock) as mock_popen,
+        patch("l1sim.launch_local._get_node_height", return_value=6),
+        patch("l1sim.launch_local.check_safety", return_value={"pass": True, "safety_ok": True}),
+    ):
+        verdict = launch_local(
+            scenario_path=scenario_path,
+            genesis_path=genesis_path,
+            base_port=20000,
+            timeout=5.0,
+            results_root=str(tmp_path),
+            quiet=True,
+        )
+
+        assert verdict["pass"] is True
+        # 10 initial + 1 restart of V8 = 11 calls to Popen
+        assert mock_popen.call_count == 11
+
+
 def test_main_cli_missing_args():
     with pytest.raises(SystemExit) as excinfo:
         main([])

@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
+from l1sim.launch_local import available_base_port, launch_local
 from tests.check_reproducible import compare_result_dirs
 from tests.check_safety import check_safety
+
+ROOT = Path(__file__).parents[2]
 
 pytestmark = pytest.mark.e2e
 
@@ -21,31 +22,30 @@ def test_t8_reproducibility(tmp_path: Path):
     run1_dir.mkdir()
     run2_dir.mkdir()
 
-    cmd = [
-        sys.executable,
-        "-X",
-        "utf8",
-        "devnet/run.py",
-        "--scenario",
-        "config/t1_normal.json",
-        "--headless",
-    ]
+    base_port1 = available_base_port(count=10, start=19700, end=25000)
+    verdict1 = launch_local(
+        scenario_path=ROOT / "config/t1_normal.json",
+        genesis_path=ROOT / "config/genesis.json",
+        base_port=base_port1,
+        timeout=30.0,
+        results_root=run1_dir,
+        quiet=True,
+    )
+    assert verdict1["pass"] is True
 
-    res1 = subprocess.run(cmd, capture_output=True, text=True)
-    assert res1.returncode == 0, f"Run 1 failed: {res1.stderr}"
-
-    results_dir = Path("logs/results/t1_normal")
-    for f in results_dir.glob("*.json"):
-        (run1_dir / f.name).write_bytes(f.read_bytes())
-
-    res2 = subprocess.run(cmd, capture_output=True, text=True)
-    assert res2.returncode == 0, f"Run 2 failed: {res2.stderr}"
-
-    for f in results_dir.glob("*.json"):
-        (run2_dir / f.name).write_bytes(f.read_bytes())
+    base_port2 = available_base_port(count=10, start=19800, end=25000)
+    verdict2 = launch_local(
+        scenario_path=ROOT / "config/t1_normal.json",
+        genesis_path=ROOT / "config/genesis.json",
+        base_port=base_port2,
+        timeout=30.0,
+        results_root=run2_dir,
+        quiet=True,
+    )
+    assert verdict2["pass"] is True
 
     identical, diffs = compare_result_dirs(run1_dir, run2_dir)
     assert identical is True, "T8 Reproducibility failure:\n" + "\n".join(diffs)
 
-    verdict = check_safety("t1_normal", results_root="logs/results")
+    verdict = check_safety("t1_normal", results_root=run1_dir)
     assert verdict["pass"] is True

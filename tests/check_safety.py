@@ -97,14 +97,20 @@ def check_safety_for_nodes(
         if len(set(hashes_at_h.values())) > 1:
             safety_violations.append({"height": h, "hashes": hashes_at_h})
 
-    # 2. Common height: highest height reached by all nodes
-    common_height = min(node_final_height.values(), default=0)
+    # 2. Common height: highest height reached by at least n - f nodes (BFT quorum)
+    quorum_count = n - f if n >= 4 else n
+    sorted_heights = sorted(node_final_height.values(), reverse=True)
+    if quorum_count > 0 and len(sorted_heights) >= quorum_count:
+        common_height = sorted_heights[quorum_count - 1]
+    else:
+        common_height = min(node_final_height.values(), default=0)
 
-    # 3. State consistency at common_height
+    # 3. State consistency at common_height across nodes reaching this height
     same_state = True
     if common_height > 0:
         state_hashes = set()
-        for v in nodes_data:
+        nodes_at_common = [v for v in nodes_data if node_final_height[v] >= common_height]
+        for v in nodes_at_common:
             sh = node_history[v].get(common_height, {}).get("state_hash")
             if not sh:
                 sh = node_final_state_hash.get(v, "")
