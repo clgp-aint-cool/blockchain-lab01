@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>l1sim dashboard</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --text:#e6e8ec; --muted:#8a92a3;
+          --ok:#3fb950; --bad:#f85149; --warn:#d29922; --info:#58a6ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+  header { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:12px 16px;
+           border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:2; }
+  header h1 { font-size:15px; margin:0 12px 0 0; }
+  label { color:var(--muted); display:flex; gap:4px; align-items:center; }
+  select, input { background:var(--bg); color:var(--text); border:1px solid var(--line);
+                  border-radius:6px; padding:4px 6px; font:inherit; }
+  input[type=number] { width:64px; }
+  button { background:#238636; color:#fff; border:0; border-radius:6px; padding:5px 12px;
+           font:inherit; cursor:pointer; }
+  button.secondary { background:#30363d; }
+  button.danger { background:#da3633; }
+  button:disabled { opacity:.45; cursor:default; }
+  .badge { padding:2px 8px; border-radius:10px; font-weight:600; font-size:12px; background:#30363d; }
+  .badge.running { background:#1f6feb; } .badge.passed { background:var(--ok); color:#000; }
+  .badge.failed, .badge.error { background:var(--bad); } .badge.stopped { background:var(--warn); color:#000; }
+  main { display:grid; grid-template-columns: minmax(0,1fr) 380px; gap:14px; padding:14px 16px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  section h2 { font-size:13px; margin:0 0 10px; color:var(--muted); font-weight:600;
+               text-transform:uppercase; letter-spacing:.04em; }
+  .left, .right { display:flex; flex-direction:column; gap:14px; min-width:0; }
+  .nodes { display:grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap:8px; }
+  .node { border:1px solid var(--line); border-radius:8px; padding:8px; background:var(--bg); }
+  .node .top { display:flex; justify-content:space-between; align-items:center; }
+  .node .id { font-weight:700; font-size:14px; }
+  .node .st { font-size:11px; color:var(--muted); }
+  .node.running { border-color:#1f6feb; } .node.done { border-color:var(--ok); }
+  .node.failed { border-color:var(--bad); } .node.killed { border-color:var(--warn); opacity:.7; }
+  .node.byz { box-shadow: inset 3px 0 0 var(--bad); }
+  .node .kv { color:var(--muted); font-size:12px; margin-top:4px; }
+  .node .kv b { color:var(--text); font-weight:600; }
+  .node button { margin-top:6px; padding:2px 8px; font-size:11px; width:100%; }
+  .tag { font-size:10px; padding:1px 5px; border-radius:4px; background:#3d1f20; color:#ffa198; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:4px 6px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  td.h { font-weight:700; }
+  tr.bad td.h { color:var(--bad); }
+  .chip { display:inline-block; padding:1px 5px; border-radius:4px; color:#000; font-weight:600; }
+  .chip.none { background:transparent; color:var(--muted); }
+  .scroll { overflow:auto; }
+  .counters { display:grid; grid-template-columns: 1fr auto; gap:2px 12px; }
+  .counters span:nth-child(even) { text-align:right; }
+  .feed { height:420px; overflow:auto; }
+  .feed div { padding:2px 0; border-bottom:1px solid #1e222b; }
+  .feed .n { display:inline-block; width:28px; font-weight:700; }
+  .feed .e { color:var(--info); }
+  .feed .e.finalize { color:var(--ok); } .feed .e.timeout, .feed .e.fault_drop { color:var(--warn); }
+  .feed .e.byz, .feed .e.tx_rejected, .feed .e.body_rejected { color:var(--bad); }
+  .muted { color:var(--muted); }
+  .verdict .row { display:flex; justify-content:space-between; padding:2px 0; }
+  .ok { color:var(--ok); } .no { color:var(--bad); }
+  pre.err { white-space:pre-wrap; color:#ffa198; background:#200; padding:6px; border-radius:6px; max-height:160px; overflow:auto; }
+  .hint { color:var(--muted); font-size:12px; }
+  #ring { width:100%; max-width:560px; height:auto; display:block; margin:0 auto; }
+  #ring g.click { cursor:pointer; }
+  #ring text.halo { paint-order:stroke; stroke:#171a21; stroke-width:4px; stroke-linejoin:round; }
+  #ring g.click:hover circle { stroke:#fff; }
+  .legend { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; color:var(--muted); font-size:12px; margin-top:6px; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; vertical-align:-1px; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>l1sim dashboard</h1>
+  <label>Scenario <select id="scenario"></select></label>
+  <label title="network.drop_rate: chỉ có tác dụng với message có height &lt; GST (FaultInjector của B)">drop <input id="drop_rate" type="number" step="0.05" min="0" max="1"></label>
+  <label title="network.duplicate_rate">dup <input id="duplicate_rate" type="number" step="0.05" min="0" max="1"></label>
+  <label title="network.gst_height (0 = tắt)">GST <input id="gst_height" type="number" step="1" min="0"></label>
+  <label title="max_height">height <input id="max_height" type="number" step="1" min="1"></label>
+  <label title="--timeout của mỗi run_node (giây)">timeout <input id="timeout" type="number" step="5" min="5" value="60"></label>
+  <button id="run">Chạy</button>
+  <button id="stop" class="secondary" disabled>Dừng</button>
+  <span id="status" class="badge">chưa chạy</span>
+  <span id="elapsed" class="muted mono"></span>
+</header>
+
+<main>
+  <div class="left">
+    <section>
+      <h2>Mạng <span class="hint" style="text-transform:none">(mỗi đường = 1 kết nối TCP, càng sáng càng nhiều message; đỏ = có message bị drop; bấm vào node đang chạy để Kill)</span></h2>
+      <svg id="ring" viewBox="0 0 520 470"></svg>
+      <div class="legend">
+        <span><span class="dot" style="background:#58a6ff"></span>PROPOSE</span>
+        <span><span class="dot" style="background:#d29922"></span>PREVOTE</span>
+        <span><span class="dot" style="background:#bc8cff"></span>PRECOMMIT</span>
+        <span><span class="dot" style="background:#3fb950"></span>vừa finalize / xong</span>
+        <span><span class="dot" style="background:#484f58"></span>bị kill</span>
+        <span><span class="dot" style="background:transparent;border:2px solid #f85149"></span>Byzantine</span>
+        <span style="color:#f2cc60">★</span><span style="margin-left:-8px">proposer round hiện tại</span>
+      </div>
+    </section>
+    <section>
+      <h2>Validators <span class="hint" style="text-transform:none">(Kill = Ctrl+C node đó; node bị kill được tính là node lỗi khi kiểm tra)</span></h2>
+      <div id="nodes" class="nodes"><span class="muted">Chọn scenario rồi bấm Chạy.</span></div>
+    </section>
+    <section>
+      <h2>Chuỗi đã finalize (mỗi ô = block hash node đó finalize ở height này)</h2>
+      <div class="scroll"><table id="chain"></table></div>
+    </section>
+    <section id="errbox" hidden>
+      <h2>Node lỗi (stderr)</h2>
+      <div id="errors"></div>
+    </section>
+  </div>
+  <div class="right">
+    <section class="verdict">
+      <h2>Kết quả check_safety</h2>
+      <div id="verdict" class="muted">Có sau khi mọi node dừng.</div>
+    </section>
+    <section>
+      <h2>Đếm event</h2>
+      <div id="counters" class="counters mono"></div>
+    </section>
+    <section>
+      <h2>Event (bỏ gossip)</h2>
+      <div id="feed" class="feed mono"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const OVERRIDES = ["drop_rate", "duplicate_rate", "gst_height", "max_height"];
+let scenarios = [];
+let seq = 0;
+let runName = null;
+let timer = null;
+let prevLinks = {};   // tổng message mỗi cạnh ở lần poll trước, để tính lưu lượng mới
+let heat = {};        // lưu lượng đã làm mượt, cho đường không nháy
+let heatPeak = 1;     // đỉnh lưu lượng từ đầu lần chạy (giảm chậm), để lúc bận và lúc rảnh khác nhau
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+}
+function hashColor(h) {
+  let x = parseInt(String(h).slice(0, 6), 16) || 0;
+  return `hsl(${x % 360} 70% 62%)`;
+}
+async function api(path, body) {
+  const opt = body === undefined ? {} : {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)};
+  const res = await fetch(path, opt);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+function fillDefaults() {
+  const s = scenarios.find((x) => x.file === $("scenario").value);
+  if (!s) return;
+  $("drop_rate").value = s.network.drop_rate;
+  $("duplicate_rate").value = s.network.duplicate_rate;
+  $("gst_height").value = s.network.gst_height;
+  $("max_height").value = s.max_height;
+}
+
+async function loadScenarios() {
+  scenarios = await api("/api/scenarios");
+  $("scenario").innerHTML = scenarios.map((s) => {
+    const byz = s.byzantine.length ? ` · byz ${s.byzantine.map((b) => b.node).join(",")}` : "";
+    return `<option value="${esc(s.file)}">${esc(s.name)} (n=${s.n}, h=${s.max_height}${byz})</option>`;
+  }).join("");
+  fillDefaults();
+}
+
+async function run() {
+  const s = scenarios.find((x) => x.file === $("scenario").value);
+  const overrides = {};
+  for (const k of OVERRIDES) {
+    const v = $(k).value;
+    const base = k === "max_height" ? s.max_height : s.network[k];
+    if (v !== "" && Number(v) !== Number(base)) overrides[k] = Number(v);
+  }
+  try {
+    await api("/api/run", {file: s.file, overrides, timeout: Number($("timeout").value) || 60});
+  } catch (e) { alert(e.message); return; }
+  seq = 0; runName = null;
+  $("feed").innerHTML = "";
+  poll();
+}
+
+async function poll() {
+  clearTimeout(timer);
+  let st;
+  try { st = await api(`/api/state?since=${seq}`); } catch (e) { timer = setTimeout(poll, 1000); return; }
+  if (st.run) render(st);
+  const active = st.run && st.run.status === "running";
+  $("run").disabled = active;
+  $("stop").disabled = !active;
+  timer = setTimeout(poll, active ? 300 : 2000);
+}
+
+const STEP_COLOR = {propose:"#58a6ff", prevote:"#d29922", precommit:"#bc8cff", finalize:"#3fb950"};
+function nodeColor(n) {
+  if (n.status === "killed") return "#484f58";
+  if (n.status === "failed") return "#f85149";
+  if (n.status === "done") return "#3fb950";
+  return STEP_COLOR[n.step] || "#8a92a3";
+}
+
+function drawRing(st) {
+  const W = 520, H = 470, cx = W / 2, cy = H / 2 - 8, R = 175;
+  const pos = {};
+  st.nodes.forEach((n, i) => {
+    const a = -Math.PI / 2 + 2 * Math.PI * i / st.nodes.length;
+    pos[n.id] = [cx + R * Math.cos(a), cy + R * Math.sin(a)];
+  });
+  const running = st.run.status === "running";
+  const live = new Set(st.nodes.filter((n) => n.status === "running" || n.status === "starting").map((n) => n.id));
+  // Cạnh còn sống: một node đang chạy còn giữ peer kia. Khi lần chạy đã xong, vẽ mọi cạnh từng có lưu lượng.
+  const edges = new Set();
+  for (const n of st.nodes) if (live.has(n.id)) for (const p of n.peers) if (pos[p]) edges.add(n.id < p ? n.id + "|" + p : p + "|" + n.id);
+  const drops = {};
+  for (const [a, b, msgs, dr] of st.links || []) {
+    const k = a + "|" + b;
+    const delta = Math.max(0, msgs - (prevLinks[k] || 0));
+    prevLinks[k] = msgs;
+    heat[k] = (heat[k] || 0) * 0.6 + delta;
+    if (dr) drops[k] = dr;
+    if (!running && msgs) edges.add(k);
+  }
+  heatPeak = Math.max(heatPeak * 0.99, ...Object.values(heat), 1);
+  let svg = "";
+  for (const k of edges) {
+    const [a, b] = k.split("|");
+    const [x1, y1] = pos[a], [x2, y2] = pos[b];
+    const t = running ? Math.min(1, (heat[k] || 0) / heatPeak) : 0.15;
+    const color = drops[k] ? `hsl(0 75% ${40 + 25 * t}%)` : `hsl(210 80% ${35 + 35 * t}%)`;
+    const title = `${a} ↔ ${b}` + (drops[k] ? ` · ${drops[k]} message bị drop` : "");
+    svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${0.8 + 2.2 * t}" stroke-opacity="${0.25 + 0.6 * t}"><title>${esc(title)}</title></line>`;
+  }
+  const proposers = new Set(st.nodes.filter((n) => live.has(n.id) && n.proposer).map((n) => n.proposer));
+  for (const n of st.nodes) {
+    const [x, y] = pos[n.id];
+    const alive = live.has(n.id);
+    const label = n.status === "killed" ? "bị kill" : `h${n.height} r${n.round}`;
+    const ring = n.byzantine ? `<circle cx="${x}" cy="${y}" r="30" fill="none" stroke="#f85149" stroke-width="2" stroke-dasharray="4 3"/>` : "";
+    svg += `<g class="${alive ? "click" : ""}" data-kill="${alive ? esc(n.id) : ""}">
+      <title>${esc(n.id)} · ${esc(n.status)} · bước ${esc(n.step || "-")} · ${n.peers.length} peer${n.byzantine ? " · Byzantine: " + esc(n.byzantine) : ""}</title>
+      ${ring}
+      <circle cx="${x}" cy="${y}" r="25" fill="${nodeColor(n)}" stroke="#0f1115" stroke-width="3" data-kill="${alive ? esc(n.id) : ""}"/>
+      <text x="${x}" y="${y + 5}" text-anchor="middle" font-weight="700" fill="#0f1115" pointer-events="none">${esc(n.id)}</text>
+      <text class="halo" x="${x}" y="${y + 45}" text-anchor="middle" fill="#8a92a3" font-size="12">${label}</text>
+      ${alive && proposers.has(n.id) ? `<text x="${x + 18}" y="${y - 17}" font-size="18" fill="#f2cc60">★</text>` : ""}
+    </g>`;
+  }
+  const h = Math.max(0, ...st.nodes.map((n) => n.height));
+  svg += `<circle cx="${cx}" cy="${cy}" r="62" fill="#171a21" fill-opacity="0.85"/>
+    <text x="${cx}" y="${cy - 6}" text-anchor="middle" fill="#e6e8ec" font-size="22" font-weight="700">height ${h}</text>
+    <text x="${cx}" y="${cy + 16}" text-anchor="middle" fill="#8a92a3" font-size="12">${esc(st.run.name)} · ${esc(STATUS_VI[st.run.status] || st.run.status)}</text>`;
+  $("ring").innerHTML = svg;
+}
+
+const STATUS_VI = {running:"đang chạy", passed:"PASS", failed:"FAIL", error:"lỗi", stopped:"đã dừng"};
+
+function render(st) {
+  const r = st.run;
+  if (runName !== r.name + r.base_port) { runName = r.name + r.base_port; $("feed").innerHTML = ""; prevLinks = {}; heat = {}; heatPeak = 1; }
+  $("status").className = "badge " + r.status;
+  $("status").textContent = `${r.name}: ${STATUS_VI[r.status] || r.status}`;
+  const net = r.network;
+  $("elapsed").textContent = `${r.elapsed}s · port ${r.base_port ?? "peers"} · drop ${net.drop_rate} dup ${net.duplicate_rate} gst ${net.gst_height}`
+    + (Object.keys(r.applied).length ? " (đã sửa)" : "")
+    + (net.drop_rate > 0 && !net.gst_height ? " · drop không có tác dụng khi GST = 0" : "");
+
+  drawRing(st);
+
+  // node cards
+  $("nodes").innerHTML = st.nodes.map((n) => {
+    const cls = ["node", n.status, n.byzantine ? "byz" : ""].join(" ");
+    const tag = n.byzantine ? `<span class="tag">${esc(n.byzantine)}</span>` : "";
+    const exit = n.exit_code !== null ? ` (exit ${n.exit_code})` : "";
+    return `<div class="${cls}">
+      <div class="top"><span class="id">${esc(n.id)}</span>${tag}</div>
+      <div class="st">${esc(n.status)}${exit}</div>
+      <div class="kv">height <b>${n.height}</b> · round <b>${n.round}</b></div>
+      <div class="kv">bước <b>${esc(n.step || "-")}</b> · peers <b>${n.peers.length}</b></div>
+      <div class="kv">cuối: ${esc(n.last_event || "-")}</div>
+      <button class="danger" data-kill="${esc(n.id)}" ${n.status === "running" || n.status === "starting" ? "" : "disabled"}>Kill</button>
+    </div>`;
+  }).join("");
+
+  // chain grid
+  const ids = st.nodes.map((n) => n.id);
+  const heights = Object.keys(st.chain).map(Number).sort((a, b) => a - b);
+  let html = `<tr><th>h</th><th>proposer</th><th>round</th><th>txs</th>${ids.map((i) => `<th>${esc(i)}</th>`).join("")}</tr>`;
+  for (const h of heights) {
+    const row = st.chain[h];
+    const honest = ids.filter((i) => row[i] && !st.nodes.find((n) => n.id === i).byzantine);
+    const distinct = new Set(honest.map((i) => row[i].hash));
+    const any = row[honest[0]] || Object.values(row)[0];
+    html += `<tr class="${distinct.size > 1 ? "bad" : ""}"><td class="h">${h}${distinct.size > 1 ? " ⚠" : ""}</td>
+      <td>${esc(any.proposer)}</td><td>${esc(any.round)}</td><td>${esc(any.txs)}</td>`;
+    for (const i of ids) {
+      const c = row[i];
+      html += c ? `<td><span class="chip mono" style="background:${hashColor(c.hash)}" title="block ${esc(c.hash)}\nstate ${esc(c.state_hash)}">${esc(c.hash.slice(0, 6))}</span></td>`
+                : `<td><span class="chip none">·</span></td>`;
+    }
+    html += "</tr>";
+  }
+  $("chain").innerHTML = heights.length ? html : `<tr><td class="muted">Chưa có block nào được finalize.</td></tr>`;
+
+  // counters
+  const cs = Object.entries(st.counters).sort((a, b) => b[1] - a[1]);
+  $("counters").innerHTML = cs.map(([k, v]) => `<span>${esc(k)}</span><span>${v}</span>`).join("");
+
+  // feed (chỉ thêm event mới)
+  if (st.feed.length) {
+    const feed = $("feed");
+    const atBottom = feed.scrollTop + feed.clientHeight >= feed.scrollHeight - 20;
+    const skip = new Set(["seq", "node", "event", "time"]);
+    const frag = st.feed.map((e) => {
+      const extra = Object.entries(e).filter(([k]) => !skip.has(k))
+        .map(([k, v]) => `${k}=${typeof v === "string" && v.length > 12 ? v.slice(0, 10) + "…" : JSON.stringify(v)}`).join(" ");
+      const cls = e.event.startsWith("byz") ? "byz" : e.event;
+      return `<div><span class="n">${esc(e.node)}</span> <span class="e ${esc(cls)}">${esc(e.event)}</span> <span class="muted">${esc(extra)}</span></div>`;
+    }).join("");
+    feed.insertAdjacentHTML("beforeend", frag);
+    while (feed.children.length > 800) feed.firstChild.remove();
+    if (atBottom) feed.scrollTop = feed.scrollHeight;
+    seq = st.seq;
+  }
+
+  // verdict
+  const v = st.verdict;
+  if (r.error) {
+    $("verdict").innerHTML = `<pre class="err">${esc(r.error)}</pre>`;
+  } else if (v) {
+    const yes = (b) => b ? `<span class="ok">✓</span>` : `<span class="no">✗</span>`;
+    const rows = [
+      ["Kết luận", v.pass ? `<b class="ok">PASS</b>` : `<b class="no">FAIL</b>`],
+      ["n / f", `${v.n} / ${v.f}`],
+      ["Đủ quorum node trung thực", yes(v.quorum_ok)],
+      ["Height chung", v.common_height],
+      ["Đạt max_height", yes(v.reached_max_height)],
+      ["Vi phạm safety", (v.safety_violations || []).length ? `<span class="no">${v.safety_violations.length}</span>` : `<span class="ok">0</span>`],
+      ["State khớp", yes(v.state_ok)],
+      ["Tổng tx", v.total_txs],
+    ];
+    if (r.killed.length) rows.push(["Node bị kill", esc(r.killed.join(", "))]);
+    $("verdict").innerHTML = rows.map(([k, x]) => `<div class="row"><span class="muted">${k}</span><span>${x}</span></div>`).join("")
+      + ((v.safety_violations || []).length ? `<pre class="err">${esc(JSON.stringify(v.safety_violations, null, 1))}</pre>` : "");
+  } else {
+    $("verdict").innerHTML = `<span class="muted">${r.status === "running" ? "Đang chạy…" : "Không có verdict (đã dừng tay)."}</span>`;
+  }
+
+  // stderr của node lỗi
+  const errs = Object.entries(st.errors || {});
+  $("errbox").hidden = !errs.length;
+  $("errors").innerHTML = errs.map(([n, t]) => `<b>${esc(n)}</b><pre class="err">${esc(t)}</pre>`).join("");
+}
+
+$("scenario").addEventListener("change", fillDefaults);
+$("run").addEventListener("click", run);
+$("stop").addEventListener("click", () => api("/api/stop", {}).then(poll));
+$("ring").addEventListener("click", (ev) => {
+  const id = ev.target.getAttribute && ev.target.getAttribute("data-kill");
+  if (id && confirm(`Kill ${id}?`)) api("/api/kill", {node: id}).catch((e) => alert(e.message));
+});
+$("nodes").addEventListener("click", (ev) => {
+  const id = ev.target.dataset && ev.target.dataset.kill;
+  if (id) api("/api/kill", {node: id}).catch((e) => alert(e.message));
+});
+loadScenarios().then(poll);
+</script>
+</body>
+</html>
