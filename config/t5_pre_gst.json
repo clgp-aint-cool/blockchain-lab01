@@ -5,7 +5,7 @@
   "num_validators": 10,
   "validators": ["V0", "V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9"],
   "byzantine": [],
-  "max_height": 6,
+  "max_height": 5,
   "warmup_ms": 1500,
   "max_txs_per_block": 4,
   "network": {
