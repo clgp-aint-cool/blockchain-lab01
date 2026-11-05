@@ -105,8 +105,14 @@ async def run_node(
                 file=sys.stderr,
             )
             return 1
-        # Allow slower peers to receive final votes and request finalized bodies.
-        await asyncio.sleep(scenario.consensus.timeout_precommit_ms / 1000)
+        # Allow slower peers to receive final votes and request finalized bodies. Before
+        # GST a copy can be held back for FaultInjector.long_delay_ms; stay that long so
+        # a peer that missed a body still gets the delayed copy before this node closes.
+        linger_ms = scenario.consensus.timeout_precommit_ms
+        injector = getattr(network, "fault_injector", None)
+        if injector is not None and scenario.network.gst_height > 1:
+            linger_ms = max(linger_ms, injector.long_delay_ms + scenario.network.delta_ms)
+        await asyncio.sleep(linger_ms / 1000)
         print(f"{node_id}: finalized height {scenario.max_height}", flush=True)
         return 0
     except ConfigError as exc:

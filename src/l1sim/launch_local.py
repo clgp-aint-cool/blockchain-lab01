@@ -110,6 +110,9 @@ def launch_local(
                 pass
 
     processes: dict[str, subprocess.Popen] = {}
+    node_logs_dir = working_dir / "logs/nodes" / scenario.name
+    node_logs_dir.mkdir(parents=True, exist_ok=True)
+    log_files: list[Any] = []
 
     def spawn_node(node_id: str) -> subprocess.Popen:
         cmd = [
@@ -132,11 +135,23 @@ def launch_local(
         if no_auto_txs:
             cmd.append("--no-auto-txs")
 
+        if quiet:
+            err_path = node_logs_dir / f"{node_id}.stderr.log"
+            out_path = node_logs_dir / f"{node_id}.stdout.log"
+            err_f = open(err_path, "w", encoding="utf-8")
+            out_f = open(out_path, "w", encoding="utf-8")
+            log_files.extend([err_f, out_f])
+            stdout_dest = out_f
+            stderr_dest = err_f
+        else:
+            stdout_dest = None
+            stderr_dest = None
+
         return subprocess.Popen(
             cmd,
             cwd=str(working_dir),
-            stdout=subprocess.PIPE if quiet else None,
-            stderr=subprocess.PIPE if quiet else None,
+            stdout=stdout_dest,
+            stderr=stderr_dest,
             text=True,
         )
 
@@ -218,13 +233,17 @@ def launch_local(
         if failed_nodes:
             err_lines = []
             for node_id, code in failed_nodes.items():
-                err = ""
-                proc = processes[node_id]
-                if proc.stderr:
-                    try:
-                        err = proc.stderr.read()
-                    except Exception:
-                        pass
+                err_path = node_logs_dir / f"{node_id}.stderr.log"
+                if err_path.is_file():
+                    err = err_path.read_text(encoding="utf-8")
+                else:
+                    err = ""
+                    proc = processes[node_id]
+                    if proc.stderr:
+                        try:
+                            err = proc.stderr.read()
+                        except Exception:
+                            pass
                 err_lines.append(f"Node {node_id} exited with code {code}:\n{err}")
             raise RuntimeError("\n".join(err_lines))
 
@@ -253,6 +272,13 @@ def launch_local(
             return {"scenario": scenario.name, "status": "completed", "pass": True}
 
     finally:
+        # Close any redirect log files
+        for f in log_files:
+            try:
+                f.close()
+            except Exception:
+                pass
+
         # Clean up any orphan processes
         for proc in processes.values():
             if proc.poll() is None:

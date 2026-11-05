@@ -34,6 +34,7 @@ from l1sim.network.static_peers import StaticPeers
 from l1sim.network.tcp_transport import TcpTransport, read_frame, write_frame
 
 BODY_KEEP_HEIGHTS = 20  # finalized bodies kept to answer BODY_REQUEST from slower peers
+BODY_RETRY_MS = 300  # then ask every other validator for a body the first peer did not send
 
 BroadcastHandler = Callable[[Message], None]
 SendHandler = Callable[[str, Message], None]
@@ -240,6 +241,22 @@ class Node:
             message = Message(Kind.HEADER, self.node_id, message.height, block.header)
         self.broadcast_handler(message)
 
+    def _retry_body_request(self, request: Message, asked: str) -> None:
+        """Ask every other validator for a body that ``asked`` has not delivered yet.
+
+        Fault decisions are a pure function of (link, message), so asking the same
+        peer again would meet the same fate; each other link is an independent
+        chance. A peer that only has the header answers once the body reaches it.
+        """
+        digest = request.payload.block_hash
+        if self._stopped or self.completed.is_set() or digest in self._blocks:
+            return
+        if digest not in self._headers:
+            return
+        for other in sorted(self.validator_keys):
+            if other not in (self.node_id, asked):
+                self.send_handler(other, request)
+
     @staticmethod
     def _signature_reason(public_key, domain: Domain, payload) -> str | None:
         if public_key is None:
@@ -298,10 +315,12 @@ class Node:
                 return False
             if digest not in self._blocks and digest not in self._headers:
                 self._headers[digest] = header
-                self.send_handler(
-                    peer,
-                    Message(Kind.BODY_REQUEST, self.node_id, message.height, BodyRequest(digest)),
+                request = Message(
+                    Kind.BODY_REQUEST, self.node_id, message.height, BodyRequest(digest)
                 )
+                self.send_handler(peer, request)
+                loop = self.loop or asyncio.get_running_loop()
+                loop.call_later(BODY_RETRY_MS / 1000, self._retry_body_request, request, peer)
             return True
 
         if message.kind is Kind.TX:
