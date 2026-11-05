@@ -345,7 +345,8 @@ class Node:
             return True
         if message.kind is Kind.VOTE:
             # The engine verifies the vote once, logs vote_rejected with a reason, and
-            # returns True only for a vote it counts, so rejected votes are not forwarded.
+            # returns True only for a vote it newly counts (an equivocator's conflicting
+            # vote included), so duplicates and rejected votes are not forwarded.
             return self.engine.on_vote(message.payload)
 
         self._event_adapter(

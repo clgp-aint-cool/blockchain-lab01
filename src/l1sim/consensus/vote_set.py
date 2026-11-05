@@ -20,7 +20,12 @@ if TYPE_CHECKING:
 ADDED = "added"
 DUPLICATE = "duplicate"
 EQUIVOCATION = "equivocation"
+EQUIVOCATION_IGNORED = "equivocation_ignored"
 INVALID = "invalid"
+
+# Conflicting values kept per voter and slot, besides its first vote. T7 needs one; the
+# cap stops a Byzantine voter from making every node store (and gossip) endless votes.
+MAX_CONFLICTING_VALUES = 2
 
 _Slot = tuple[int, int, Phase]
 
@@ -109,7 +114,8 @@ class VoteSet:
     2. the signature must verify with the voter's public key under
        ``Domain.VOTE`` (so a TX-domain signature is rejected),
     3. a second, different vote of the same voter in the same slot is an
-       equivocation: recorded as evidence, and counted only for its own value.
+       equivocation: recorded as evidence, and counted only for its own value
+       (at most :data:`MAX_CONFLICTING_VALUES` such values per voter and slot).
 
     Why an equivocator's second vote still counts: a node that received the
     Byzantine "other" vote first would otherwise never count that validator for
@@ -159,7 +165,6 @@ class VoteSet:
         # Later votes of an equivocator, per slot and voter, keyed by block hash (or None).
         self._conflicting: dict[_Slot, dict[str, dict[str | None, Vote]]] = {}
         self.equivocations: list[tuple[Vote, Vote]] = []
-        self._evidence: set[tuple[str, int, int, Phase, str | None]] = set()
 
     def add(self, vote: Vote) -> str:
         """Validate a vote and store it if it is the voter's first vote in its slot.
@@ -179,11 +184,14 @@ class VoteSet:
              Ed25519 signatures are deterministic, so a re-delivered vote is
              byte-for-byte identical;
            - different ``block_hash`` (a block vs. another block, or a block vs.
-             NIL) -> ``"equivocation"``. The first vote stays the voter's vote
-             for :meth:`total` and :meth:`voters`; the new one is kept too and
-             counts for its own value only; the pair is appended to
-             :attr:`equivocations` once. Receiving the same conflicting vote
-             again returns ``"equivocation"`` again and changes nothing;
+             NIL), seen for the first time -> ``"equivocation"``. The first vote
+             stays the voter's vote for :meth:`total` and :meth:`voters`; the
+             new one is kept too and counts for its own value only; the pair is
+             appended to :attr:`equivocations`;
+           - that same conflicting vote again -> ``"duplicate"``;
+           - a new conflicting value when the voter already has
+             :data:`MAX_CONFLICTING_VALUES` of them -> ``"equivocation_ignored"``
+             (not stored, not counted);
 
         4. otherwise -> ``"added"``.
 
@@ -193,8 +201,10 @@ class VoteSet:
                 already guaranteed by :class:`l1sim.models.Vote`.
 
         Returns:
-            One of ``"added"``, ``"duplicate"``, ``"equivocation"``, ``"invalid"``.
-            ``"added"`` and the first ``"equivocation"`` for a value change a count.
+            One of ``"added"``, ``"duplicate"``, ``"equivocation"``,
+            ``"equivocation_ignored"``, ``"invalid"``. Only ``"added"`` and
+            ``"equivocation"`` change a count, and only those are worth
+            forwarding: each stored vote is then gossiped exactly once.
 
         Raises:
             Nothing for bad network input; bad votes return ``"invalid"``.
@@ -214,12 +224,13 @@ class VoteSet:
         if existing.block_hash == vote.block_hash:
             return DUPLICATE
 
-        evidence_key = (vote.voter, vote.height, vote.round, vote.phase, vote.block_hash)
-        if evidence_key not in self._evidence:
-            self._evidence.add(evidence_key)
-            self.equivocations.append((existing, vote))
         later = self._conflicting.setdefault(slot, {}).setdefault(vote.voter, {})
-        later.setdefault(vote.block_hash, vote)
+        if vote.block_hash in later:
+            return DUPLICATE  # the same conflicting vote again
+        if len(later) >= MAX_CONFLICTING_VALUES:
+            return EQUIVOCATION_IGNORED
+        later[vote.block_hash] = vote
+        self.equivocations.append((existing, vote))
         return EQUIVOCATION
 
     def count(self, height: int, round: int, phase: Phase, block_hash: str | None) -> int:

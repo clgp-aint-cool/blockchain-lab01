@@ -319,6 +319,86 @@ def test_gossip_relays_transactions_and_bodies_across_multiple_hops(tmp_path, co
     asyncio.run(exercise())
 
 
+def test_equivocators_conflicting_vote_is_relayed_once(tmp_path, configs):
+    """V9 sends its second, conflicting precommit only to V0 (PR #28 review).
+
+    V5 has no link to V9, so it gets that vote only if V0 forwards it. V0 counts
+    it (for its own value), so it must forward it, but only once.
+    """
+    from l1sim.network.gossip import DIRECT, FLOOD, Gossip
+
+    async def exercise():
+        genesis, scenario = configs
+        loop = asyncio.get_running_loop()
+        transports, nodes, gossips = {}, {}, {}
+
+        class LinkTransport:
+            def __init__(self, node_id, neighbors):
+                self.node_id = node_id
+                self.neighbors = neighbors
+
+            def set_receiver(self, receiver):
+                self.receiver = receiver
+
+            def peers(self):
+                return self.neighbors
+
+            async def send(self, peer, data):
+                loop.call_soon(transports[peer].receiver, self.node_id, data)
+
+        for validator, neighbors in (("V0", ["V5"]), ("V5", ["V0"])):
+            node = Node(
+                validator,
+                genesis,
+                scenario,
+                logger=EventLogger(validator, scenario.name, tmp_path / "events"),
+                result_writer=ResultWriter(scenario.name, tmp_path / "results"),
+            )
+            nodes[validator] = node
+            transports[validator] = LinkTransport(validator, neighbors)
+            gossip = Gossip(validator, transports[validator], logger=node._event_adapter)
+            gossips[validator] = gossip
+            for kind in FLOOD | DIRECT:
+                gossip.on(kind, node.receive_message)
+            node.broadcast_handler = gossip.broadcast_nowait
+            node.send_handler = gossip.send_to_nowait
+
+        key = keypair_from_seed(scenario.seed, "V9")
+
+        def precommit(block_hash):
+            vote = Vote(Phase.PRECOMMIT, 1, 0, block_hash, "V9")
+            return replace(vote, signature=sign(key.private_key, Domain.VOTE, vote))
+
+        def from_v9(dst, vote):
+            transports[dst].receiver("V9", encode(Message(Kind.VOTE, "V9", 1, vote)))
+
+        real_hash = "a" * 64
+        fake, real = precommit("b" * 64), precommit(real_hash)
+        try:
+            from_v9("V0", fake)
+            from_v9("V5", fake)
+            await asyncio.sleep(0.05)
+            from_v9("V0", real)  # V5 never hears from V9 directly
+            await asyncio.sleep(0.05)
+
+            for node in nodes.values():
+                votes = node.engine.votes
+                assert votes.votes_for(1, 0, Phase.PRECOMMIT, real_hash) == (real,), node.node_id
+                assert len(votes.equivocations) == 1
+
+            # The same conflicting vote again is a duplicate: not forwarded, nothing changes.
+            again = Message(Kind.VOTE, "V9", 1, real)
+            assert nodes["V0"].receive_message(again, "V9") is False
+            assert len(nodes["V0"].engine.votes.equivocations) == 1
+            assert nodes["V0"].engine.votes.count(1, 0, Phase.PRECOMMIT, real_hash) == 1
+        finally:
+            for node in nodes.values():
+                node.stop()
+            await asyncio.gather(*(gossip.stop() for gossip in gossips.values()))
+
+    asyncio.run(exercise())
+
+
 def test_receive_message_forwards_only_what_the_node_keeps(tmp_path, configs):
     genesis, scenario = configs
     node = make_node(tmp_path, configs)

@@ -387,13 +387,19 @@ def test_on_vote_returns_true_only_for_counted_votes():
     engine = net.engines["V0"]
     vote = net.make_vote("V2", Phase.PREVOTE, 1, 0, None)
     conflicting = net.make_vote("V2", Phase.PREVOTE, 1, 0, "a" * 64)
+    over_cap = [net.make_vote("V2", Phase.PREVOTE, 1, 0, c * 64) for c in "bc"]
     future = net.make_vote("V3", Phase.PRECOMMIT, 4, 2, None)
 
     assert engine.on_vote(vote) is True
     assert engine.on_vote(vote) is False  # duplicate
-    assert engine.on_vote(conflicting) is False  # equivocation
+    # A conflicting vote counts for its own value, so it is forwarded once...
+    assert engine.on_vote(conflicting) is True
+    assert engine.on_vote(conflicting) is False  # ...and not again
+    assert engine.on_vote(over_cap[0]) is True  # second conflicting value, still under the cap
+    assert engine.on_vote(over_cap[1]) is False  # third one: ignored
     assert engine.on_vote(future) is True  # kept until the engine gets there
-    assert {"duplicate_ignored", "equivocation_detected"} <= set(net.event_names("V0"))
+    names = set(net.event_names("V0"))
+    assert {"duplicate_ignored", "equivocation_detected", "equivocation_ignored"} <= names
 
 
 def test_on_vote_rejects_invalid_votes_with_a_reason():

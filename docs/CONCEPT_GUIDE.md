@@ -880,7 +880,7 @@ if locked_block is not None and P != locked_block:
 | 4 | Thấy polka → lock | `locked_block`, `locked_round` |
 | 5 | Đã lock chỉ đổi khi có polka mới hơn | Kiểm tra trước khi prevote |
 | 6 | Không ký vote sai chain/height/round/phase/domain | Kiểm tra trong hàm `sign_vote()` |
-| 7 | Bỏ duplicate, mỗi validator chỉ đếm 1 vote | `votes[(h, r, phase)][validator_id] = vote` |
+| 7 | Bỏ duplicate, mỗi validator đếm tối đa 1 lần cho mỗi giá trị | `votes[(h, r, phase)][validator_id] = vote`, vote xung đột lưu riêng theo giá trị |
 
 Một vote đến sẽ đi qua các bước sau trước khi được đếm:
 
@@ -892,8 +892,10 @@ flowchart TD
     C -- không --> R2["Reject: unknown_validator"]
     C -- có --> D{"Đã có vote của voter này<br/>cho (h, r, phase)?"}
     D -- "chưa" --> ADD["Lưu: votes[(h,r,phase)][voter] = vote<br/>→ đếm"]
-    D -- "có, giống hệt" --> DUP["Bỏ qua: duplicate_ignored"]
-    D -- "có, khác block" --> EQ["Không đếm<br/>log: equivocation_detected"]
+    D -- "có, giống hệt" --> DUP["Bỏ qua: duplicate_ignored<br/>không forward"]
+    D -- "có, khác block" --> EQ{"Voter đã có ≥ 2<br/>giá trị xung đột?"}
+    EQ -- "chưa" --> EQC["Lưu, đếm cho đúng giá trị đó<br/>log: equivocation_detected<br/>forward 1 lần"]
+    EQ -- "rồi" --> EQI["Bỏ: equivocation_ignored<br/>không đếm, không forward"]
 ```
 
 ### Timeout
@@ -902,14 +904,19 @@ Mỗi bước có timeout (ví dụ `propose_timeout`). Hết giờ thì vote NI
 
 ### Equivocation
 
-Byzantine gửi `PREVOTE(h, r, A)` cho một nửa mạng và `PREVOTE(h, r, B)` cho nửa còn lại. Code của mình: giữ vote **đầu tiên** của validator đó, log vote thứ hai là equivocation, không đếm. Vì quorum là 2f+1, f kẻ xấu không đủ để kéo cả A và B lên quorum. Đây là test **T7**.
+Byzantine gửi `PREVOTE(h, r, A)` cho một nửa mạng và `PREVOTE(h, r, B)` cho nửa còn lại. Code của mình: log vote thứ hai là equivocation (bằng chứng cho T7), nhưng **vẫn đếm mỗi vote cho đúng giá trị của nó**, mỗi validator tối đa 1 lần cho mỗi giá trị, rồi forward vote đó đúng 1 lần. Đây là test **T7**.
+
+- **Vì sao phải đếm cả vote thứ hai?** Nếu chỉ giữ vote tới trước, node nhận `B` của kẻ xấu trước sẽ không bao giờ đếm vote `A` của chúng. Khi cả mạng commit `A` nhờ có vote đó, node này thiếu quorum và kẹt mãi (lỗi #27).
+- **Vì sao vẫn an toàn?** Hai quorum `q = n − f` chung nhau ít nhất `2q − n = n − 2f ≥ f + 1` validator. Muốn cả `A` lẫn `B` đạt quorum thì ít nhất `f + 1` validator phải ký cho cả hai, tức là có ít nhất 1 validator trung thực equivocate, điều không xảy ra. Tendermint cũng đếm như vậy.
+- **Vì sao phải forward?** Kẻ xấu có thể chỉ gửi vote thứ hai cho vài node. Node nào đã đếm vote đó thì forward, để nó tới được những node bị bỏ qua.
+- **Giới hạn:** mỗi validator chỉ được lưu tối đa 2 giá trị xung đột cho mỗi `(h, r, phase)`. Nếu không, kẻ xấu ký vô số hash khác nhau và mọi node đều phải lưu và forward. T7 chỉ cần 1.
 
 ```mermaid
 flowchart LR
     BZ(("Byzantine Vx"))
     BZ -- "PREVOTE A" --> G1["Nhóm 1"]
     BZ -- "PREVOTE B" --> G2["Nhóm 2"]
-    G1 --> K["Khi hai vote cùng tới một node:<br/>giữ vote đầu, log equivocation"]
+    G1 --> K["Khi hai vote cùng tới một node:<br/>đếm mỗi vote cho giá trị của nó,<br/>log equivocation, forward 1 lần"]
     G2 --> K
 ```
 
