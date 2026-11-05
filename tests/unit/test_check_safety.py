@@ -333,3 +333,76 @@ def test_check_safety_ignores_byzantine_nodes():
     assert res_10["pass"] is True
     assert res_10["n"] == 10
     assert res_10["f"] == 3
+
+
+def test_check_safety_requires_quorum_for_liveness():
+    """Verify quorum threshold (N=10, f=3 => quorum=7) for reached_max_height and pass."""
+    # 1 of 10 nodes reaching height 5: must fail liveness
+    nodes_1 = {
+        "V0": {
+            "node_id": "V0",
+            "finalized_height": 5,
+            "state_hash": "same_state",
+            "block_hashes": [f"h{i}" for i in range(1, 6)],
+        }
+    }
+    res_1 = check_safety_for_nodes(nodes_1, num_validators=10, max_height=5)
+    assert res_1["common_height"] == 0
+    assert res_1["reached_max_height"] is False
+    assert res_1["quorum_ok"] is False
+    assert res_1["pass"] is False
+
+    # 6 of 10 nodes reaching height 5: still below quorum (6 < 7), must fail
+    nodes_6 = {
+        f"V{i}": {
+            "node_id": f"V{i}",
+            "finalized_height": 5,
+            "state_hash": "same_state",
+            "block_hashes": [f"h{h}" for h in range(1, 6)],
+        }
+        for i in range(6)
+    }
+    res_6 = check_safety_for_nodes(nodes_6, num_validators=10, max_height=5)
+    assert res_6["common_height"] == 0
+    assert res_6["reached_max_height"] is False
+    assert res_6["quorum_ok"] is False
+    assert res_6["pass"] is False
+
+    # 7 of 10 nodes reaching height 5: exactly achieves quorum (7 >= 7), must pass
+    nodes_7 = {
+        f"V{i}": {
+            "node_id": f"V{i}",
+            "finalized_height": 5,
+            "state_hash": "same_state",
+            "block_hashes": [f"h{h}" for h in range(1, 6)],
+        }
+        for i in range(7)
+    }
+    res_7 = check_safety_for_nodes(nodes_7, num_validators=10, max_height=5)
+    assert res_7["common_height"] == 5
+    assert res_7["reached_max_height"] is True
+    assert res_7["quorum_ok"] is True
+    assert res_7["pass"] is True
+
+
+def test_check_safety_detects_actual_execution_state_divergence():
+    """Verify detection when actual node execution state diverges from declared block state."""
+    nodes = {
+        f"V{i}": {
+            "finalized_height": 1,
+            "state_hash": "ACTUAL_BAD_STATE" if i == 0 else "ACTUAL_GOOD_STATE",
+            "blocks": [
+                {
+                    "height": 1,
+                    "hash": "same-block",
+                    "state_hash": "declared-state",
+                    "txs": 1,
+                }
+            ],
+        }
+        for i in range(10)
+    }
+    verdict = check_safety_for_nodes(nodes, num_validators=10, max_height=1)
+    assert verdict["state_ok"] is False
+    assert verdict["same_state_at_common_height"] is False
+    assert verdict["pass"] is False

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from l1sim.config import ConfigError, load_config
-from tests.check_safety import check_safety
+from l1sim.verification.check_safety import check_safety
 
 
 def available_base_port(count: int = 10, start: int = 19000, end: int = 25000) -> int:
