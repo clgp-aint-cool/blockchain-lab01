@@ -2,34 +2,35 @@
 
 from __future__ import annotations
 
-import shutil
-import subprocess
-import sys
+from pathlib import Path
 
 import pytest
 
-from tests.check_safety import check_safety
+from l1sim.launch_local import available_base_port, launch_local
+
+ROOT = Path(__file__).parents[2]
 
 pytestmark = pytest.mark.e2e
 
 
-def test_t5_pre_gst():
-    """Verify that network faults before GST preserve safety and progress resumes after GST."""
-    shutil.rmtree("logs/results/t5_pre_gst", ignore_errors=True)
-    shutil.rmtree("logs/events/t5_pre_gst", ignore_errors=True)
-    cmd = [
-        sys.executable,
-        "-X",
-        "utf8",
-        "devnet/run.py",
-        "--scenario",
-        "config/t5_pre_gst.json",
-        "--headless",
-    ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    assert res.returncode == 0, f"Devnet run failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+def test_t5_pre_gst(tmp_path: Path):
+    """Verify that network faults before GST preserve safety and progress resumes after GST.
 
-    verdict = check_safety("t5_pre_gst", results_root="logs/results")
+    The scenario runs with 30% packet drop and 10% duplication before GST
+    (height 2).  After GST the network stabilises and all 10 honest nodes must
+    reach max_height=5 with identical state.
+    """
+    base_port = available_base_port(count=10, start=20500, end=25000)
+    verdict = launch_local(
+        scenario_path=ROOT / "config/t5_pre_gst.json",
+        genesis_path=ROOT / "config/genesis.json",
+        base_port=base_port,
+        timeout=90.0,
+        results_root=tmp_path / "results",
+        quiet=True,
+    )
+
+    assert verdict["pass"] is True
     assert verdict["safety_ok"] is True
     assert verdict["same_state_at_common_height"] is True
-    assert verdict["pass"] is True
+    assert verdict["reached_max_height"] is True

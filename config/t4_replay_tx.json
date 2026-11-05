@@ -3,7 +3,18 @@
   "chain_id": "lab01",
   "seed": 42,
   "num_validators": 10,
-  "validators": ["V0", "V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9"],
+  "validators": [
+    "V0",
+    "V1",
+    "V2",
+    "V3",
+    "V4",
+    "V5",
+    "V6",
+    "V7",
+    "V8",
+    "V9"
+  ],
   "byzantine": [],
   "max_height": 5,
   "warmup_ms": 1000,
@@ -14,14 +25,7 @@
     "drop_rate": 0.0,
     "duplicate_rate": 0.0,
     "gst_height": 0,
-    "delta_ms": 500,
-    "target_degree": 4
-  },
-  "discovery": {
-    "multicast_group": "239.1.1.1",
-    "multicast_port": 50000,
-    "beacon_interval_ms": 1000,
-    "target_degree": 4
+    "delta_ms": 500
   },
   "consensus": {
     "timeout_propose_ms": 1000,
@@ -30,25 +34,125 @@
     "timeout_delta_ms": 300
   },
   "transactions": [
-    {"sender": "Alice", "key": "Alice/account", "value": "init-01", "nonce": 0},
-    {"sender": "Alice", "key": "Alice/account", "value": "replay-attack-01", "nonce": 0},
-    {"sender": "Bob", "key": "Bob/account", "value": "init-02", "nonce": 0},
-    {"sender": "Bob", "key": "Bob/account", "value": "replay-attack-02", "nonce": 0},
-    {"sender": "Charlie", "key": "Charlie/account", "value": "init-03", "nonce": 0},
-    {"sender": "Charlie", "key": "Charlie/account", "value": "replay-attack-03", "nonce": 0},
-    {"sender": "Alice", "key": "Alice/account", "value": "tx-04", "nonce": 1},
-    {"sender": "Alice", "key": "Alice/account", "value": "replay-attack-04", "nonce": 1},
-    {"sender": "Bob", "key": "Bob/account", "value": "tx-05", "nonce": 1},
-    {"sender": "Bob", "key": "Bob/account", "value": "replay-attack-05", "nonce": 1},
-    {"sender": "Charlie", "key": "Charlie/account", "value": "tx-06", "nonce": 1},
-    {"sender": "Charlie", "key": "Charlie/account", "value": "replay-attack-06", "nonce": 1},
-    {"sender": "Alice", "key": "Alice/account", "value": "tx-07", "nonce": 2},
-    {"sender": "Alice", "key": "Alice/account", "value": "replay-attack-07", "nonce": 0},
-    {"sender": "Bob", "key": "Bob/account", "value": "tx-08", "nonce": 2},
-    {"sender": "Bob", "key": "Bob/account", "value": "replay-attack-08", "nonce": 1},
-    {"sender": "Charlie", "key": "Charlie/account", "value": "tx-09", "nonce": 2},
-    {"sender": "Charlie", "key": "Charlie/account", "value": "replay-attack-09", "nonce": 2},
-    {"sender": "Alice", "key": "Alice/account", "value": "tx-10", "nonce": 3},
-    {"sender": "Bob", "key": "Bob/account", "value": "tx-11", "nonce": 3}
+    {
+      "sender": "Alice",
+      "key": "Alice/account",
+      "value": "init-01",
+      "nonce": 0
+    },
+    {
+      "sender": "Alice",
+      "key": "Alice/account",
+      "value": "replay-attack-01",
+      "nonce": 0
+    },
+    {
+      "sender": "Bob",
+      "key": "Bob/account",
+      "value": "init-02",
+      "nonce": 0
+    },
+    {
+      "sender": "Bob",
+      "key": "Bob/account",
+      "value": "replay-attack-02",
+      "nonce": 0
+    },
+    {
+      "sender": "Charlie",
+      "key": "Charlie/account",
+      "value": "init-03",
+      "nonce": 0
+    },
+    {
+      "sender": "Charlie",
+      "key": "Charlie/account",
+      "value": "replay-attack-03",
+      "nonce": 0
+    },
+    {
+      "sender": "Alice",
+      "key": "Alice/account",
+      "value": "tx-04",
+      "nonce": 1
+    },
+    {
+      "sender": "Alice",
+      "key": "Alice/account",
+      "value": "replay-attack-04",
+      "nonce": 1
+    },
+    {
+      "sender": "Bob",
+      "key": "Bob/account",
+      "value": "tx-05",
+      "nonce": 1
+    },
+    {
+      "sender": "Bob",
+      "key": "Bob/account",
+      "value": "replay-attack-05",
+      "nonce": 1
+    },
+    {
+      "sender": "Charlie",
+      "key": "Charlie/account",
+      "value": "tx-06",
+      "nonce": 1
+    },
+    {
+      "sender": "Charlie",
+      "key": "Charlie/account",
+      "value": "replay-attack-06",
+      "nonce": 1
+    },
+    {
+      "sender": "Alice",
+      "key": "Alice/account",
+      "value": "tx-07",
+      "nonce": 2
+    },
+    {
+      "sender": "Alice",
+      "key": "Alice/account",
+      "value": "replay-attack-07",
+      "nonce": 0
+    },
+    {
+      "sender": "Bob",
+      "key": "Bob/account",
+      "value": "tx-08",
+      "nonce": 2
+    },
+    {
+      "sender": "Bob",
+      "key": "Bob/account",
+      "value": "replay-attack-08",
+      "nonce": 1
+    },
+    {
+      "sender": "Charlie",
+      "key": "Charlie/account",
+      "value": "tx-09",
+      "nonce": 2
+    },
+    {
+      "sender": "Charlie",
+      "key": "Charlie/account",
+      "value": "replay-attack-09",
+      "nonce": 2
+    },
+    {
+      "sender": "Alice",
+      "key": "Alice/account",
+      "value": "tx-10",
+      "nonce": 3
+    },
+    {
+      "sender": "Bob",
+      "key": "Bob/account",
+      "value": "tx-11",
+      "nonce": 3
+    }
   ]
 }
