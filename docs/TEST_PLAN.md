@@ -32,8 +32,8 @@ Các tùy chọn pytest đặt sau `--`, ví dụ `-- -v --cov=l1sim`.
 Unit test kiểm tra thêm chữ ký/domain, nonce, ownership, state hash, quorum,
 locking, round-skip, evidence, framing, peer authentication, gossip và fault decisions.
 `tests/e2e/test_client_ingress.py` kiểm tra TX đi từ client qua TCP tới mempool và chain.
-`tests/integration/test_devnet.py` kiểm tra dashboard backend trong một process;
-được skip nếu bản phân phối không có devnet.
+`tests/integration/test_dashboard.py` chạy T1 qua web dashboard (10 process `run_node`)
+và kiểm tra verdict; được skip nếu bản phân phối không có `dashboard/`.
 
 T3 có barrier giữa các process: kết nối đủ peer, gửi vote sai qua rule và gossip
 thật, chờ mỗi receiver ghi reason và xác nhận vote không được đếm, rồi mới bắt đầu
