@@ -51,8 +51,10 @@ Main chưa có block sync, nên node đã kill không bật lại được để
 | `POST /api/kill` `{node}` | kill một node |
 | `POST /api/stop` | dừng tất cả |
 | `GET /api/state?since=<seq>` | trạng thái node, chain, bộ đếm event, event mới sau `seq`, verdict |
+| `GET /api/logs` | tải file zip log của lần chạy gần nhất: `events/V*.jsonl`, stdout/stderr từng node, `results/` |
 
 Event gossip (`gossip_duplicate`, `gossip_recv`, `gossip_send`, `gossip_broadcast`) rất nhiều
-nên chỉ được đếm, không đưa vào danh sách event.
+nên chỉ được đếm, không đưa vào danh sách event. Trang chỉ giữ 800 dòng event gần nhất; muốn xem đầy đủ
+(kể cả gossip) thì bấm **Tải log (.zip)** ở khung Event.
 
 Test: `tests/integration/test_dashboard.py` chạy T1 qua API và kiểm verdict.

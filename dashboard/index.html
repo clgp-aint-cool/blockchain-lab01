@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>l1sim dashboard</title>
 <style>
-  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --text:#e6e8ec; --muted:#8a92a3;
+  :root { color-scheme:dark; --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --text:#e6e8ec; --muted:#8a92a3;
           --ok:#3fb950; --bad:#f85149; --warn:#d29922; --info:#58a6ff; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--text);
@@ -53,9 +53,16 @@
   .scroll { overflow:auto; }
   .counters { display:grid; grid-template-columns: 1fr auto; gap:2px 12px; }
   .counters span:nth-child(even) { text-align:right; }
-  .feed { height:420px; overflow:auto; }
-  .feed div { padding:2px 0; border-bottom:1px solid #1e222b; }
-  .feed .n { display:inline-block; width:28px; font-weight:700; }
+  .feedbox { grid-column: 1 / -1; }
+  .feedhead { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .feedhead h2 { margin:0; flex:1; }
+  a.btn { background:#30363d; color:#fff; border-radius:6px; padding:4px 12px; text-decoration:none; }
+  a.btn.off { opacity:.45; pointer-events:none; }
+  .feed { height:480px; overflow:auto; }
+  .feed div { display:grid; grid-template-columns: 34px 170px minmax(0,1fr); gap:8px;
+              padding:3px 0; border-bottom:1px solid #1e222b; }
+  .feed .n { font-weight:700; }
+  .feed .x { overflow-wrap:anywhere; }
   .feed .e { color:var(--info); }
   .feed .e.finalize { color:var(--ok); } .feed .e.timeout, .feed .e.fault_drop { color:var(--warn); }
   .feed .e.byz, .feed .e.tx_rejected, .feed .e.body_rejected { color:var(--bad); }
@@ -125,11 +132,15 @@
       <h2>Đếm event</h2>
       <div id="counters" class="counters mono"></div>
     </section>
-    <section>
-      <h2>Event (bỏ gossip)</h2>
-      <div id="feed" class="feed mono"></div>
-    </section>
   </div>
+  <section class="feedbox">
+    <div class="feedhead">
+      <h2>Event <span class="hint" style="text-transform:none">(bỏ gossip; trên trang giữ 800 dòng gần nhất, tải về để có đầy đủ)</span></h2>
+      <label><input type="checkbox" id="follow" checked> tự cuộn</label>
+      <a id="dl" class="btn off" href="/api/logs" download>Tải log (.zip)</a>
+    </div>
+    <div id="feed" class="feed mono"></div>
+  </section>
 </main>
 
 <script>
@@ -197,6 +208,7 @@ async function poll() {
   let st;
   try { st = await api(`/api/state?since=${seq}`); } catch (e) { timer = setTimeout(poll, 1000); return; }
   if (st.run) render(st);
+  $("dl").classList.toggle("off", !st.run);
   const active = st.run && st.run.status === "running";
   $("run").disabled = active;
   $("stop").disabled = !active;
@@ -320,13 +332,13 @@ function render(st) {
   // feed (chỉ thêm event mới)
   if (st.feed.length) {
     const feed = $("feed");
-    const atBottom = feed.scrollTop + feed.clientHeight >= feed.scrollHeight - 20;
+    const atBottom = $("follow").checked;
     const skip = new Set(["seq", "node", "event", "time"]);
     const frag = st.feed.map((e) => {
       const extra = Object.entries(e).filter(([k]) => !skip.has(k))
-        .map(([k, v]) => `${k}=${typeof v === "string" && v.length > 12 ? v.slice(0, 10) + "…" : JSON.stringify(v)}`).join(" ");
+        .map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(" ");
       const cls = e.event.startsWith("byz") ? "byz" : e.event;
-      return `<div><span class="n">${esc(e.node)}</span> <span class="e ${esc(cls)}">${esc(e.event)}</span> <span class="muted">${esc(extra)}</span></div>`;
+      return `<div><span class="n">${esc(e.node)}</span><span class="e ${esc(cls)}">${esc(e.event)}</span><span class="muted x">${esc(extra)}</span></div>`;
     }).join("");
     feed.insertAdjacentHTML("beforeend", frag);
     while (feed.children.length > 800) feed.firstChild.remove();

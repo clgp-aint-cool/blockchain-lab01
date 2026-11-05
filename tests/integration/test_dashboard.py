@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import threading
 import urllib.request
+import zipfile
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -75,3 +77,10 @@ def test_t1_through_dashboard_passes(server):
     for row in state["chain"].values():
         assert len({cell["hash"] for cell in row.values()}) == 1  # mọi node cùng block
     assert state["counters"].get("finalize") == 10 * max_height
+
+    with urllib.request.urlopen(base + "/api/logs", timeout=10) as res:
+        assert res.headers["Content-Type"] == "application/zip"
+        names = zipfile.ZipFile(io.BytesIO(res.read())).namelist()
+    name = state["run"]["name"]
+    assert {f"{name}/events/V{i}.jsonl" for i in range(10)} <= set(names)
+    assert f"{name}/results/verdict.json" in names

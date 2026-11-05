@@ -14,6 +14,7 @@ Thư mục `dashboard/` không nằm trong file zip nộp bài.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import signal
@@ -22,6 +23,7 @@ import sys
 import tempfile
 import threading
 import time
+import zipfile
 from collections import Counter, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -352,6 +354,18 @@ class Run:
             self.tmpdir.rmdir()
             self.tmpdir = None
 
+    def logs_zip(self) -> bytes:
+        """Gói log của lần chạy: event từng node, stdout/stderr, results (nếu đã có)."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for d in (self.events_dir, self.stderr_dir, self.results_dir):
+                if not d.is_dir():
+                    continue
+                for f in sorted(d.iterdir()):
+                    if f.is_file():
+                        zf.write(f, f"{self.name}/{d.parent.name}/{f.name}")
+        return buf.getvalue()
+
     def wait(self, timeout: float | None = None) -> None:
         self._thread.join(timeout)
 
@@ -442,6 +456,20 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 since = int(parse_qs(url.query).get("since", ["0"])[0] or 0)
                 run = app.run
                 self._json(200, run.snapshot(since) if run else {"run": None})
+            elif url.path == "/api/logs":
+                run = app.run
+                if run is None:
+                    self._json(404, {"error": "chưa chạy scenario nào"})
+                    return
+                data = run.logs_zip()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                name = f"{run.name}-logs.zip"
+                self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
             else:
                 self._json(404, {"error": "not found"})
 
