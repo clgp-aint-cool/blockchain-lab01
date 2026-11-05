@@ -161,6 +161,122 @@ class NodeView:
         }
 
 
+# ---- xem lại theo giai đoạn ---------------------------------------------------------------
+# `time` trong event là bộ đếm riêng của từng node nên không xếp chung các node theo thời gian
+# được. Thay vào đó gom event theo giai đoạn consensus (height, round, bước): mỗi node đi qua
+# các giai đoạn theo thứ tự, nên trạng thái mạng ở giai đoạn S = trạng thái mới nhất của mỗi
+# node mà chưa vượt quá S.
+STEPS = ("start", "propose", "prevote", "precommit", "finalize")
+# Event kết nối / lặp lại không giúp hiểu giai đoạn, bỏ khỏi danh sách event của giai đoạn.
+STAGE_HIDDEN = NOISY | {
+    "ignored_old_height",
+    "conn_open",
+    "conn_closed",
+    "listen",
+    "connect_failed",
+}
+
+
+def _read_events(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if ev.get("event") not in NOISY:
+            out.append(ev)
+    return out
+
+
+def _node_track(events: list[dict[str, Any]]) -> list[tuple[tuple[int, int, int], dict, dict]]:
+    """Đi qua event của một node, trả [(giai đoạn, trạng thái sau event, event)]."""
+    st: dict[str, Any] = {
+        "height": 0, "round": 0, "step": "", "proposer": "", "peers": set(),
+        "prevote": None, "precommit": None, "locked": None,
+    }  # fmt: skip
+    stage = (0, 0, 0)
+    track = []
+    for ev in events:
+        name = ev.get("event", "")
+        h = int(ev.get("height") or stage[0])
+        r = int(ev.get("round", stage[1]) or 0)
+        if name == "new_round":
+            stage = (h, r, 1)
+            st.update(round=r, step="propose", proposer=str(ev.get("proposer") or ""))
+        elif name == "propose":
+            stage = (h, r, 1)
+            st["step"] = "propose"
+        elif name in ("prevote", "precommit"):
+            stage = (h, r, STEPS.index(name))
+            st["step"] = name
+            st[name] = {"h": h, "r": r, "hash": ev.get("block_hash")}
+        elif name == "lock":
+            st["locked"] = {"h": h, "r": r, "hash": ev.get("block_hash")}
+        elif name == "finalize":
+            stage = (h, stage[1], 4)
+            st["height"] = max(st["height"], h)
+            st["step"] = "finalize"
+        elif name == "peer_added":
+            st["peers"].add(str(ev.get("peer")))
+        elif name == "peer_removed":
+            st["peers"].discard(str(ev.get("peer")))
+        # Giữ thứ tự không giảm (phòng event lạ của node Byzantine) để cắt theo giai đoạn được.
+        if track and stage < track[-1][0]:
+            stage = track[-1][0]
+        snap = {**st, "peers": sorted(st["peers"])}
+        track.append((stage, snap, ev))
+    return track
+
+
+def build_timeline(
+    events_dir: Path, validators: list[str], byz: dict[str, str], killed: set[str]
+) -> list[dict[str, Any]]:
+    tracks = {v: _node_track(_read_events(events_dir / f"{v}.jsonl")) for v in validators}
+    stages = sorted({stage for t in tracks.values() for stage, _, _ in t})
+    empty = {"height": 0, "round": 0, "step": "", "proposer": "", "peers": [],
+             "prevote": None, "precommit": None, "locked": None}  # fmt: skip
+    frames = []
+    pos = dict.fromkeys(validators, 0)  # số entry của mỗi node đã nằm trong giai đoạn <= S
+    for stage in stages:
+        h, r, step = stage
+        nodes, chain, events = [], {}, []
+        for v in validators:
+            t = tracks[v]
+            while pos[v] < len(t) and t[pos[v]][0] <= stage:
+                pos[v] += 1
+            state = t[pos[v] - 1][1] if pos[v] else empty
+            last_stage = t[-1][0] if t else (0, 0, 0)
+            if stage > last_stage:
+                status = "killed" if v in killed else "done"
+            else:
+                status = "running"
+            reached = pos[v] > 0 and t[pos[v] - 1][0] == stage
+            nodes.append(
+                {"id": v, "byzantine": byz.get(v), "status": status, "reached": reached, **state}
+            )
+            for s, _, ev in t[: pos[v]]:
+                if ev.get("event") == "finalize":
+                    chain.setdefault(str(ev["height"]), {})[v] = {
+                        "hash": ev.get("block_hash", ""),
+                        "proposer": ev.get("proposer"),
+                        "round": ev.get("commit_round", ev.get("round")),
+                        "txs": ev.get("txs"),
+                        "state_hash": ev.get("state_hash", ""),
+                    }
+                if s == stage and ev.get("event") not in STAGE_HIDDEN:
+                    events.append({**ev, "node": v})
+        proposers = Counter(n["proposer"] for n in nodes if n["round"] == r and n["proposer"])
+        frames.append({
+            "height": h, "round": r, "step": STEPS[step],
+            "proposer": proposers.most_common(1)[0][0] if proposers else "",
+            "nodes": nodes, "chain": chain, "events": events,
+        })  # fmt: skip
+    return frames
+
+
 class Run:
     """Một lần chạy scenario: N process run_node + theo dõi log."""
 
@@ -210,6 +326,7 @@ class Run:
         self.started = time.monotonic()
         self.ended: float | None = None
         self.killed: set[str] = set()
+        self._timeline: list[dict[str, Any]] | None = None
         self.lock = threading.Lock()
 
         self.events_dir = ROOT / "logs" / "events" / self.name
@@ -354,6 +471,13 @@ class Run:
             self.tmpdir.rmdir()
             self.tmpdir = None
 
+    def timeline(self) -> list[dict[str, Any]]:
+        if self.ended is None:
+            raise RuntimeError("đang chạy, chờ chạy xong mới xem lại được")
+        if self._timeline is None:
+            self._timeline = build_timeline(self.events_dir, self.validators, self.byz, self.killed)
+        return self._timeline
+
     def logs_zip(self) -> bytes:
         """Gói log của lần chạy: event từng node, stdout/stderr, results (nếu đã có)."""
         buf = io.BytesIO()
@@ -456,6 +580,14 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 since = int(parse_qs(url.query).get("since", ["0"])[0] or 0)
                 run = app.run
                 self._json(200, run.snapshot(since) if run else {"run": None})
+            elif url.path == "/api/timeline":
+                if app.run is None:
+                    self._json(404, {"error": "chưa chạy scenario nào"})
+                    return
+                try:
+                    self._json(200, {"frames": app.run.timeline()})
+                except RuntimeError as exc:
+                    self._json(409, {"error": str(exc)})
             elif url.path == "/api/logs":
                 run = app.run
                 if run is None:

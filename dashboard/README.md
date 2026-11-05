@@ -27,6 +27,21 @@ càng sáng và dày, đường đỏ là kết nối có message bị drop. Mà
 Node Byzantine có viền đỏ nét đứt, ★ đánh dấu proposer của round hiện tại. Bấm vào node đang
 chạy để kill nó.
 
+## Xem lại từng giai đoạn
+
+Khi lần chạy kết thúc, phía trên vòng tròn có thanh **⏮ ◀ Lùi ▶ Phát Tiến ▶ ⏭** và thanh kéo
+(phím ← / → cũng dùng được). Mỗi bước là một giai đoạn consensus: khởi động, rồi với từng
+height và round là PROPOSE → PREVOTE → PRECOMMIT → FINALIZE.
+
+Ở mỗi giai đoạn, vòng tròn, thẻ validator và bảng chain hiện trạng thái mạng lúc đó. Node chưa
+tới giai đoạn này bị làm mờ, và nhãn dưới node là phiếu nó bỏ (`pv 2be1bc`, `pc nil`…). Bên dưới
+có tóm tắt (bao nhiêu phiếu cho block nào, đã đủ 2f+1 chưa, proposer có gửi đề xuất không) và
+các event của giai đoạn đó. Bấm **Về kết quả cuối** để thoát.
+
+Event chỉ có bộ đếm `time` riêng của từng node, không có giờ chung, nên không xếp được thứ tự
+tuyệt đối giữa các node. Vì vậy dashboard gom theo giai đoạn: trạng thái mạng ở một giai đoạn là
+trạng thái mới nhất của từng node mà chưa vượt quá giai đoạn đó.
+
 ## Điều khiển
 
 | Ô / nút | Ý nghĩa |
@@ -51,6 +66,7 @@ Main chưa có block sync, nên node đã kill không bật lại được để
 | `POST /api/kill` `{node}` | kill một node |
 | `POST /api/stop` | dừng tất cả |
 | `GET /api/state?since=<seq>` | trạng thái node, chain, bộ đếm event, event mới sau `seq`, verdict |
+| `GET /api/timeline` | các giai đoạn của lần chạy đã xong (409 khi đang chạy) |
 | `GET /api/logs` | tải file zip log của lần chạy gần nhất: `events/V*.jsonl`, stdout/stderr từng node, `results/` |
 
 Event gossip (`gossip_duplicate`, `gossip_recv`, `gossip_send`, `gossip_broadcast`) rất nhiều

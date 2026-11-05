@@ -84,3 +84,11 @@ def test_t1_through_dashboard_passes(server):
     name = state["run"]["name"]
     assert {f"{name}/events/V{i}.jsonl" for i in range(10)} <= set(names)
     assert f"{name}/results/verdict.json" in names
+
+    # Xem lại theo giai đoạn: bắt đầu bằng khởi động, mỗi height có một giai đoạn finalize,
+    # giai đoạn cuối có đủ chain.
+    frames = _call(base + "/api/timeline")["frames"]
+    assert frames[0]["step"] == "start"
+    finals = [f["height"] for f in frames if f["step"] == "finalize"]
+    assert finals == list(range(1, max_height + 1))
+    assert set(frames[-1]["chain"]) == {str(h) for h in range(1, max_height + 1)}

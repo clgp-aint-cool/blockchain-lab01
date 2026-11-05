@@ -75,6 +75,14 @@
   #ring g.click { cursor:pointer; }
   #ring text.halo { paint-order:stroke; stroke:#171a21; stroke-width:4px; stroke-linejoin:round; }
   #ring g.click:hover circle { stroke:#fff; }
+  .replay { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:8px; padding:8px;
+            border:1px solid var(--line); border-radius:8px; background:var(--bg); }
+  .replay input[type=range] { flex:1; min-width:160px; accent-color:#58a6ff; }
+  .replay .lbl { font-weight:600; min-width:260px; }
+  .stageinfo { margin-top:10px; border-top:1px solid var(--line); padding-top:8px; }
+  .stageinfo .sum { margin-bottom:6px; }
+  .feed.mini { height:auto; max-height:240px; }
+  .node.unreached { opacity:.45; }
   .legend { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; color:var(--muted); font-size:12px; margin-top:6px; }
   .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; vertical-align:-1px; }
   @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
@@ -99,6 +107,16 @@
   <div class="left">
     <section>
       <h2>Mạng <span class="hint" style="text-transform:none">(mỗi đường = 1 kết nối TCP, càng sáng càng nhiều message; đỏ = có message bị drop; bấm vào node đang chạy để Kill)</span></h2>
+      <div id="replay" class="replay" hidden>
+        <button id="rpFirst" class="secondary" title="Về giai đoạn đầu">⏮</button>
+        <button id="rpPrev" class="secondary" title="Lùi (phím ←)">◀ Lùi</button>
+        <button id="rpPlay" class="secondary">▶ Phát</button>
+        <button id="rpNext" class="secondary" title="Tiến (phím →)">Tiến ▶</button>
+        <button id="rpLast" class="secondary" title="Tới giai đoạn cuối">⏭</button>
+        <input type="range" id="rpSlider" min="0" max="0" value="0">
+        <span id="rpLabel" class="lbl"></span>
+        <button id="rpExit" class="secondary" hidden>Về kết quả cuối</button>
+      </div>
       <svg id="ring" viewBox="0 0 520 470"></svg>
       <div class="legend">
         <span><span class="dot" style="background:#58a6ff"></span>PROPOSE</span>
@@ -108,6 +126,10 @@
         <span><span class="dot" style="background:#484f58"></span>bị kill</span>
         <span><span class="dot" style="background:transparent;border:2px solid #f85149"></span>Byzantine</span>
         <span style="color:#f2cc60">★</span><span style="margin-left:-8px">proposer round hiện tại</span>
+      </div>
+      <div id="stageinfo" class="stageinfo" hidden>
+        <div id="stageSum" class="sum"></div>
+        <div id="stageEvents" class="feed mini mono"></div>
       </div>
     </section>
     <section>
@@ -152,7 +174,12 @@ let runName = null;
 let timer = null;
 let prevLinks = {};   // tổng message mỗi cạnh ở lần poll trước, để tính lưu lượng mới
 let heat = {};        // lưu lượng đã làm mượt, cho đường không nháy
-let heatPeak = 1;     // đỉnh lưu lượng từ đầu lần chạy (giảm chậm), để lúc bận và lúc rảnh khác nhau
+let heatPeak = 1;
+let lastSt = null;    // state mới nhất từ server
+let timeline = null;  // các giai đoạn của lần chạy đã xong (/api/timeline)
+let tlRun = null;
+let rpIdx = null;     // null = xem trực tiếp / kết quả cuối; số = đang xem lại giai đoạn đó
+let rpTimer = null;     // đỉnh lưu lượng từ đầu lần chạy (giảm chậm), để lúc bận và lúc rảnh khác nhau
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -199,6 +226,7 @@ async function run() {
     await api("/api/run", {file: s.file, overrides, timeout: Number($("timeout").value) || 60});
   } catch (e) { alert(e.message); return; }
   seq = 0; runName = null;
+  stopPlay(); rpIdx = null; timeline = null; $("stageinfo").hidden = true;
   $("feed").innerHTML = "";
   poll();
 }
@@ -230,7 +258,8 @@ function drawRing(st) {
     const a = -Math.PI / 2 + 2 * Math.PI * i / st.nodes.length;
     pos[n.id] = [cx + R * Math.cos(a), cy + R * Math.sin(a)];
   });
-  const running = st.run.status === "running";
+  const fr = st.frame;  // có khi đang xem lại một giai đoạn
+  const running = !fr && st.run.status === "running";
   const live = new Set(st.nodes.filter((n) => n.status === "running" || n.status === "starting").map((n) => n.id));
   // Cạnh còn sống: một node đang chạy còn giữ peer kia. Khi lần chạy đã xong, vẽ mọi cạnh từng có lưu lượng.
   const edges = new Set();
@@ -246,7 +275,21 @@ function drawRing(st) {
   }
   heatPeak = Math.max(heatPeak * 0.99, ...Object.values(heat), 1);
   let svg = "";
-  for (const k of edges) {
+  if (fr) {
+    // Xem lại: nối mọi node chưa bị kill; tô màu bước hiện tại cho các đường đang "làm việc":
+    // PROPOSE = proposer gửi block tới mọi node, bước vote = các node đã tới giai đoạn này.
+    const up = st.nodes.filter((n) => n.status !== "killed").map((n) => n.id);
+    const reached = new Set(st.nodes.filter((n) => n.reached).map((n) => n.id));
+    for (let i = 0; i < up.length; i++) for (let j = i + 1; j < up.length; j++) {
+      const [a, b] = [up[i], up[j]].sort();
+      const [x1, y1] = pos[a], [x2, y2] = pos[b];
+      let hot = null;
+      if (fr.step === "propose") hot = (a === fr.proposer || b === fr.proposer) && reached.has(fr.proposer) ? STEP_COLOR.propose : null;
+      else if (fr.step !== "start") hot = reached.has(a) && reached.has(b) ? STEP_COLOR[fr.step] : null;
+      svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${hot || "#30363d"}" stroke-width="${hot ? 1.6 : 0.8}" stroke-opacity="${hot ? 0.75 : 0.4}"/>`;
+    }
+  }
+  for (const k of fr ? [] : edges) {
     const [a, b] = k.split("|");
     const [x1, y1] = pos[a], [x2, y2] = pos[b];
     const t = running ? Math.min(1, (heat[k] || 0) / heatPeak) : 0.15;
@@ -254,54 +297,50 @@ function drawRing(st) {
     const title = `${a} ↔ ${b}` + (drops[k] ? ` · ${drops[k]} message bị drop` : "");
     svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${0.8 + 2.2 * t}" stroke-opacity="${0.25 + 0.6 * t}"><title>${esc(title)}</title></line>`;
   }
-  const proposers = new Set(st.nodes.filter((n) => live.has(n.id) && n.proposer).map((n) => n.proposer));
+  const proposers = fr ? new Set(fr.step === "start" ? [] : [fr.proposer])
+    : new Set(st.nodes.filter((n) => live.has(n.id) && n.proposer).map((n) => n.proposer));
   for (const n of st.nodes) {
     const [x, y] = pos[n.id];
-    const alive = live.has(n.id);
-    const label = n.status === "killed" ? "bị kill" : `h${n.height} r${n.round}`;
+    const alive = running && live.has(n.id);
+    const label = n.status === "killed" ? "bị kill" : fr ? frameLabel(n, fr) : `h${n.height} r${n.round}`;
+    const dim = fr && !n.reached && n.status !== "killed" ? ` opacity="0.4"` : "";
     const ring = n.byzantine ? `<circle cx="${x}" cy="${y}" r="30" fill="none" stroke="#f85149" stroke-width="2" stroke-dasharray="4 3"/>` : "";
-    svg += `<g class="${alive ? "click" : ""}" data-kill="${alive ? esc(n.id) : ""}">
+    svg += `<g class="${alive ? "click" : ""}" data-kill="${alive ? esc(n.id) : ""}"${dim}>
       <title>${esc(n.id)} · ${esc(n.status)} · bước ${esc(n.step || "-")} · ${n.peers.length} peer${n.byzantine ? " · Byzantine: " + esc(n.byzantine) : ""}</title>
       ${ring}
       <circle cx="${x}" cy="${y}" r="25" fill="${nodeColor(n)}" stroke="#0f1115" stroke-width="3" data-kill="${alive ? esc(n.id) : ""}"/>
       <text x="${x}" y="${y + 5}" text-anchor="middle" font-weight="700" fill="#0f1115" pointer-events="none">${esc(n.id)}</text>
       <text class="halo" x="${x}" y="${y + 45}" text-anchor="middle" fill="#8a92a3" font-size="12">${label}</text>
-      ${alive && proposers.has(n.id) ? `<text x="${x + 18}" y="${y - 17}" font-size="18" fill="#f2cc60">★</text>` : ""}
+      ${(fr || alive) && proposers.has(n.id) ? `<text x="${x + 18}" y="${y - 17}" font-size="18" fill="#f2cc60">★</text>` : ""}
     </g>`;
   }
   const h = Math.max(0, ...st.nodes.map((n) => n.height));
+  const big = fr ? (fr.step === "start" ? "khởi động" : `h${fr.height} · r${fr.round}`) : `height ${h}`;
+  const small = fr ? (fr.step === "start" ? "kết nối peer" : fr.step.toUpperCase())
+    : `${st.run.name} · ${STATUS_VI[st.run.status] || st.run.status}`;
   svg += `<circle cx="${cx}" cy="${cy}" r="62" fill="#171a21" fill-opacity="0.85"/>
-    <text x="${cx}" y="${cy - 6}" text-anchor="middle" fill="#e6e8ec" font-size="22" font-weight="700">height ${h}</text>
-    <text x="${cx}" y="${cy + 16}" text-anchor="middle" fill="#8a92a3" font-size="12">${esc(st.run.name)} · ${esc(STATUS_VI[st.run.status] || st.run.status)}</text>`;
+    <text x="${cx}" y="${cy - 6}" text-anchor="middle" fill="#e6e8ec" font-size="22" font-weight="700">${esc(big)}</text>
+    <text x="${cx}" y="${cy + 16}" text-anchor="middle" fill="${fr ? STEP_COLOR[fr.step] || "#8a92a3" : "#8a92a3"}" font-size="12">${esc(small)}</text>`;
   $("ring").innerHTML = svg;
 }
 
 const STATUS_VI = {running:"đang chạy", passed:"PASS", failed:"FAIL", error:"lỗi", stopped:"đã dừng"};
 
-function render(st) {
-  const r = st.run;
-  if (runName !== r.name + r.base_port) { runName = r.name + r.base_port; $("feed").innerHTML = ""; prevLinks = {}; heat = {}; heatPeak = 1; }
-  $("status").className = "badge " + r.status;
-  $("status").textContent = `${r.name}: ${STATUS_VI[r.status] || r.status}`;
-  const net = r.network;
-  $("elapsed").textContent = `${r.elapsed}s · port ${r.base_port ?? "peers"} · drop ${net.drop_rate} dup ${net.duplicate_rate} gst ${net.gst_height}`
-    + (Object.keys(r.applied).length ? " (đã sửa)" : "")
-    + (net.drop_rate > 0 && !net.gst_height ? " · drop không có tác dụng khi GST = 0" : "");
-
+function renderNet(st) {
   drawRing(st);
-
+  const fr = st.frame;
   // node cards
   $("nodes").innerHTML = st.nodes.map((n) => {
-    const cls = ["node", n.status, n.byzantine ? "byz" : ""].join(" ");
+    const cls = ["node", n.status, n.byzantine ? "byz" : "", fr && !n.reached && n.status !== "killed" ? "unreached" : ""].join(" ");
     const tag = n.byzantine ? `<span class="tag">${esc(n.byzantine)}</span>` : "";
-    const exit = n.exit_code !== null ? ` (exit ${n.exit_code})` : "";
+    const exit = n.exit_code != null ? ` (exit ${n.exit_code})` : "";
     return `<div class="${cls}">
       <div class="top"><span class="id">${esc(n.id)}</span>${tag}</div>
       <div class="st">${esc(n.status)}${exit}</div>
       <div class="kv">height <b>${n.height}</b> · round <b>${n.round}</b></div>
       <div class="kv">bước <b>${esc(n.step || "-")}</b> · peers <b>${n.peers.length}</b></div>
-      <div class="kv">cuối: ${esc(n.last_event || "-")}</div>
-      <button class="danger" data-kill="${esc(n.id)}" ${n.status === "running" || n.status === "starting" ? "" : "disabled"}>Kill</button>
+      ${fr ? `<div class="kv">${voteLine(n, fr)}</div>` : `<div class="kv">cuối: ${esc(n.last_event || "-")}</div>`}
+      <button class="danger" data-kill="${esc(n.id)}" ${!fr && (n.status === "running" || n.status === "starting") ? "" : "disabled"}>Kill</button>
     </div>`;
   }).join("");
 
@@ -324,6 +363,23 @@ function render(st) {
     html += "</tr>";
   }
   $("chain").innerHTML = heights.length ? html : `<tr><td class="muted">Chưa có block nào được finalize.</td></tr>`;
+
+}
+
+function render(st) {
+  const r = st.run;
+  if (runName !== r.name + r.base_port) { runName = r.name + r.base_port; $("feed").innerHTML = ""; prevLinks = {}; heat = {}; heatPeak = 1; }
+  $("status").className = "badge " + r.status;
+  $("status").textContent = `${r.name}: ${STATUS_VI[r.status] || r.status}`;
+  const net = r.network;
+  $("elapsed").textContent = `${r.elapsed}s · port ${r.base_port ?? "peers"} · drop ${net.drop_rate} dup ${net.duplicate_rate} gst ${net.gst_height}`
+    + (Object.keys(r.applied).length ? " (đã sửa)" : "")
+    + (net.drop_rate > 0 && !net.gst_height ? " · drop không có tác dụng khi GST = 0" : "");
+
+  lastSt = st;
+  if (r.status === "running" && (rpIdx !== null || timeline)) { stopPlay(); rpIdx = null; timeline = null; $("stageinfo").hidden = true; }
+  if (rpIdx === null) renderNet(st);
+  updateBar();
 
   // counters
   const cs = Object.entries(st.counters).sort((a, b) => b[1] - a[1]);
@@ -374,6 +430,124 @@ function render(st) {
   $("errbox").hidden = !errs.length;
   $("errors").innerHTML = errs.map(([n, t]) => `<b>${esc(n)}</b><pre class="err">${esc(t)}</pre>`).join("");
 }
+
+// ---- xem lại theo giai đoạn ----------------------------------------------------------------
+function short(h) { return h ? String(h).slice(0, 6) : "nil"; }
+function voteOf(n, fr, kind) {
+  const v = n[kind];
+  return v && v.h === fr.height && v.r === fr.round ? short(v.hash) : null;
+}
+function frameLabel(n, fr) {
+  if (fr.step === "prevote" || fr.step === "precommit") {
+    const v = voteOf(n, fr, fr.step);
+    return v ? `${fr.step === "prevote" ? "pv" : "pc"} ${v}` : "chưa vote";
+  }
+  return `h${n.height} r${n.round}`;
+}
+function voteLine(n, fr) {
+  const pv = voteOf(n, fr, "prevote"), pc = voteOf(n, fr, "precommit");
+  return `prevote <b>${esc(pv ?? "-")}</b> · precommit <b>${esc(pc ?? "-")}</b>`;
+}
+function tally(events, kind) {
+  const c = {};
+  for (const e of events) if (e.event === kind) { const k = short(e.block_hash); c[k] = (c[k] || 0) + 1; }
+  return Object.entries(c).sort((a, b) => b[1] - a[1]);
+}
+function stageSummary(fr) {
+  const n = fr.nodes.length, f = Math.floor((n - 1) / 3), q = 2 * f + 1;
+  const ev = fr.events;
+  const reached = fr.nodes.filter((x) => x.reached).length;
+  if (fr.step === "start") return `Các node mở cổng, bắt tay HELLO và thêm nhau làm peer (${reached}/${n} node).`;
+  const head = `<b>Height ${fr.height} · round ${fr.round}</b> · ${reached}/${n} node ở giai đoạn này. `;
+  if (fr.step === "propose") {
+    const made = ev.some((e) => e.event === "propose" && e.node === fr.proposer);
+    const byz = ev.find((e) => e.event === "byzantine_action" && e.node === fr.proposer && e.kind === "proposal");
+    const to = ev.filter((e) => e.event === "timeout").length;
+    const what = byz ? `là node <span class="no">Byzantine (${esc(byz.behavior)})</span>: `
+        + (byz.behavior === "silent" ? "tạo block nhưng giữ lại, không gửi cho ai." : "gửi các đề xuất mâu thuẫn nhau cho các node khác nhau.")
+      : made ? "gửi block đề xuất cho mọi node."
+      : `<span class="no">không gửi đề xuất</span> (im lặng hoặc đã dừng).`;
+    return head + `Proposer <b>${esc(fr.proposer)}</b> ${what}` + (to ? ` ${to} node hết giờ chờ (timeout).` : "");
+  }
+  if (fr.step === "prevote" || fr.step === "precommit") {
+    const t = tally(ev, fr.step);
+    const list = t.map(([h, c]) => `${c} phiếu ${h === "nil" ? "<b>nil</b>" : `cho <b>${esc(h)}</b>`}`).join(", ") || "chưa có phiếu";
+    const ok = t.find(([h, c]) => h !== "nil" && c >= q);
+    const next = fr.step === "prevote" ? "precommit (và khoá block)" : "finalize";
+    return head + `${fr.step.toUpperCase()}: ${list}. Cần ≥ ${q}/${n} phiếu (2f+1) cho cùng một block để ${next}: `
+      + (ok ? `<span class="ok">đủ</span>.` : `<span class="no">chưa đủ</span>, chờ timeout rồi sang round sau.`);
+  }
+  const fin = ev.filter((e) => e.event === "finalize");
+  const hashes = [...new Set(fin.map((e) => short(e.block_hash)))];
+  return head + `${fin.length} node finalize block <b>${esc(hashes.join(", "))}</b>` + (hashes.length > 1 ? ` <span class="no">(khác nhau!)</span>` : "") + ".";
+}
+function updateBar() {
+  const st = lastSt;
+  const show = !!(st && st.run && st.run.status !== "running");
+  $("replay").hidden = !show;
+  if (!show) return;
+  const len = timeline ? timeline.length : 0;
+  $("rpExit").hidden = rpIdx === null;
+  $("rpSlider").max = Math.max(0, len - 1);
+  if (rpIdx === null) {
+    $("rpLabel").textContent = "Đang xem kết quả cuối · bấm ◀ / ⏮ để xem lại từng giai đoạn";
+    $("rpSlider").value = $("rpSlider").max;
+  } else {
+    const fr = timeline[rpIdx];
+    $("rpSlider").value = rpIdx;
+    $("rpLabel").textContent = `Giai đoạn ${rpIdx + 1}/${len}: ` + (fr.step === "start" ? "khởi động"
+      : `height ${fr.height} · round ${fr.round} · ${fr.step.toUpperCase()}`);
+  }
+  $("rpPlay").textContent = rpTimer ? "⏸ Dừng" : "▶ Phát";
+}
+async function ensureTimeline() {
+  if (timeline && tlRun === runName) return true;
+  try { timeline = (await api("/api/timeline")).frames; tlRun = runName; return timeline.length > 0; }
+  catch (e) { alert(e.message); return false; }
+}
+async function gotoStage(i) {
+  // Không await khi timeline đã có, để bấm liên tiếp đọc đúng rpIdx mới.
+  if (!(timeline && tlRun === runName) && !(await ensureTimeline())) return;
+  rpIdx = Math.max(0, Math.min(timeline.length - 1, i));
+  const fr = timeline[rpIdx];
+  renderNet({run: lastSt.run, nodes: fr.nodes, chain: fr.chain, links: [], frame: fr});
+  $("stageinfo").hidden = false;
+  $("stageSum").innerHTML = stageSummary(fr);
+  const skip = new Set(["node", "event", "time", "height", "round"]);
+  $("stageEvents").innerHTML = fr.events.map((e) => {
+    const extra = Object.entries(e).filter(([k]) => !skip.has(k)).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(" ");
+    const cls = e.event.startsWith("byz") ? "byz" : e.event;
+    return `<div><span class="n">${esc(e.node)}</span><span class="e ${esc(cls)}">${esc(e.event)}</span><span class="muted x">${esc(extra)}</span></div>`;
+  }).join("") || `<div class="muted">Không có event.</div>`;
+  updateBar();
+}
+function stopPlay() { clearInterval(rpTimer); rpTimer = null; }
+function exitReplay() {
+  stopPlay(); rpIdx = null; $("stageinfo").hidden = true;
+  if (lastSt) renderNet(lastSt);
+  updateBar();
+}
+$("rpFirst").addEventListener("click", () => gotoStage(0));
+$("rpPrev").addEventListener("click", async () => { if (await ensureTimeline()) gotoStage(rpIdx === null ? timeline.length - 1 : rpIdx - 1); });
+$("rpNext").addEventListener("click", () => { if (rpIdx !== null) gotoStage(rpIdx + 1); else gotoStage(0); });
+$("rpLast").addEventListener("click", async () => { if (await ensureTimeline()) gotoStage(timeline.length - 1); });
+$("rpExit").addEventListener("click", exitReplay);
+$("rpSlider").addEventListener("input", (e) => gotoStage(Number(e.target.value)));
+$("rpPlay").addEventListener("click", async () => {
+  if (rpTimer) { stopPlay(); updateBar(); return; }
+  if (!(await ensureTimeline())) return;
+  if (rpIdx === null || rpIdx >= timeline.length - 1) await gotoStage(0);
+  rpTimer = setInterval(() => {
+    if (rpIdx >= timeline.length - 1) { stopPlay(); updateBar(); return; }
+    gotoStage(rpIdx + 1);
+  }, 1200);
+  updateBar();
+});
+document.addEventListener("keydown", (e) => {
+  if ($("replay").hidden || ["INPUT", "SELECT"].includes(document.activeElement.tagName)) return;
+  if (e.key === "ArrowLeft") $("rpPrev").click();
+  if (e.key === "ArrowRight") $("rpNext").click();
+});
 
 $("scenario").addEventListener("change", fillDefaults);
 $("run").addEventListener("click", run);
