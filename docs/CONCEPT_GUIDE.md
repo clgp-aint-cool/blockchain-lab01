@@ -696,7 +696,8 @@ Prevote = "tôi thấy block này hợp lệ". Precommit = "tôi biết **đa s�
 ### Locking – phần quan trọng nhất cho safety
 
 - **Vấn đề nếu không lock:** round 0, precommit cho B đủ quorum ở **vài** node nên vài node đã finalize B, nhưng message tới node khác bị mất. Round 1 có proposer mới đề xuất C. Nếu mọi người vote C thoải mái → C cũng finalize → **2 block ở cùng height**. Thảm họa.
-- **Rule 4–5:** khi đã lock B, validator **chỉ prevote B** ở các round sau. Chỉ được đổi sang block khác nếu thấy **polka (2f+1 prevote) cho block khác đó ở round mới hơn** `locked_round`.
+- **Rule 4–5:** khi đã lock B, validator **chỉ prevote B** ở các round sau, dù proposal của round đó là block nào. Chỉ được đổi sang block khác nếu thấy **polka (2f+1 prevote) cho block khác đó ở round mới hơn** `locked_round`.
+- **Chưa lock nhưng biết polka cũ:** nếu một round trước của height này đã có polka cho P, validator prevote **P** thay vì proposal mới. Xem mục "Ba bổ sung của code" bên dưới.
 - **Kết quả:** một khi B có thể đã được finalize ở đâu đó, đủ nhiều honest node đã lock B để không block nào khác đạt quorum.
 
 Kịch bản lỗi nếu **không có** lock:
@@ -719,12 +720,11 @@ Một validator đã lock B quyết định prevote thế nào ở các round sa
 
 ```mermaid
 flowchart TD
-    U["Unlocked<br/>chưa lock block nào ở height này"] -- "thấy polka cho B ở round r" --> LB["Locked B<br/>locked_block = B, locked_round = r"]
-    LB --> Q{"Round mới:<br/>proposal là block nào?"}
-    Q -- "vẫn là B" --> PB["Prevote B"]
-    Q -- "block khác, C" --> Q2{"Có polka cho C ở round<br/>mới hơn locked_round?"}
-    Q2 -- "không" --> PN["Prevote NIL<br/>vẫn giữ lock B"]
-    Q2 -- "có" --> LC["Đổi lock sang C<br/>locked_round = round đó<br/>prevote C"]
+    U["Unlocked<br/>chưa lock block nào ở height này"] -- "precommit B khi thấy polka B ở round r" --> LB["Locked B<br/>locked_block = B, locked_round = r"]
+    LB --> Q2{"Round mới: có polka cho block C<br/>ở round mới hơn locked_round?"}
+    Q2 -- "không" --> PB["Prevote B<br/>(proposal là gì cũng vậy)<br/>vẫn giữ lock B"]
+    Q2 -- "có" --> PC["Prevote C<br/>(B chắc chắn chưa finalize)"]
+    PC -- "thấy polka C ở round hiện tại → precommit C" --> LC["Đổi lock sang C<br/>locked_round = round đó"]
     FIN["Block của height này được finalize"] -- "sang height mới, xóa lock" --> U2["Unlocked ở height mới"]
 ```
 
@@ -746,7 +746,7 @@ n = 4, f = 1, quorum = 3.
 
 **Round 2, nếu bỏ lock:** proposer đề xuất C. V1, V2, V3 không còn lock gì → cả ba prevote C → **polka C** → precommit C → **V1, V2, V3 finalize C**. V0 đã finalize **B**, còn V1, V2, V3 finalize **C** ở cùng height → **mất safety**.
 
-**Round 2, nếu giữ lock:** V1, V2 vẫn lock B, chưa có polka C nào mới hơn round 1 → prevote **NIL**. C tối đa có V3 cộng 1 Byzantine, tức 2 phiếu, nhỏ hơn 3 → **C không bao giờ được finalize** → safety được giữ.
+**Round 2, nếu giữ lock:** V1, V2 vẫn lock B, chưa có polka C nào mới hơn round 1 → prevote **B**, không prevote C. C tối đa có V3 cộng 1 Byzantine, tức 2 phiếu, nhỏ hơn 3 → **C không bao giờ được finalize** → safety được giữ. (Test `test_locking_keeps_safety_when_round_0_precommits_are_lost` trong `tests/unit/test_engine.py` chạy đúng kịch bản này.)
 
 ```mermaid
 sequenceDiagram
@@ -764,7 +764,7 @@ sequenceDiagram
         V3->>V12: prevote C
         Note over V0,V3: polka C → V1, V2, V3 finalize C ❌ trong khi V0 đã finalize B
     else Giữ lock như thiết kế
-        V12->>V3: prevote NIL, vì đang lock B
+        V12->>V3: prevote B, vì đang lock B
         Note over V0,V3: C tối đa 2 phiếu < 3 → không finalize được ✅
     end
 ```
@@ -782,18 +782,25 @@ sequenceDiagram
 | Round | Chuyện xảy ra với V5 | Lock của V5 |
 | --- | --- | --- |
 | 1 | Thấy polka B → lock B. Precommit không đủ → timeout → sang round 2 | B, `locked_round = 1` |
-| 2 | Proposal là C. Đang lock B, chưa thấy polka C → prevote NIL. Prevote của người khác tới chậm → timeout → precommit NIL → sang round 3 | vẫn B |
+| 2 | Proposal là C. Đang lock B, chưa thấy polka C → prevote **B** (không phải C, không phải NIL). Prevote của người khác tới chậm → timeout → precommit NIL → sang round 3 | vẫn B |
 | 2, tới trễ | Đang ở round 3 thì prevote cho C của round 2 mới tới. V5 **vẫn lưu và đếm**: đủ 2f + 1 → biết đã có polka C ở round 2 | vẫn B |
 | 3 | Proposal là C. `polka_round(C) = 2 > locked_round = 1` → **được prevote C**; khi thấy polka C ở round 3 thì đổi lock sang C | C, `locked_round = 3` |
 
-Quy tắc gọn để code. Vế `r_p < r` luôn tự đúng, vì polka của round hiện tại cần chính prevote của round hiện tại:
+Quy tắc trong code (`_decide_prevote` trong `engine.py`). `latest_polka()` là polka mới nhất của một round **trước** round hiện tại, cho block mà node có và thấy hợp lệ:
 
 ```python
-if locked_block is not None and P != locked_block:
-    if polka_round(P) > locked_round:
-        prevote(P)
+polka = latest_polka()                      # (round, block) hoặc None
+if locked_block is not None:                # 1. đã lock
+    if polka is not None and polka.round > locked_round:
+        prevote(polka.block)                #    polka mới hơn: B chắc chắn chưa finalize
     else:
-        prevote(NIL)
+        prevote(locked_block)               #    còn lại: luôn prevote block đã lock
+elif polka is not None:                     # 2. chưa lock nhưng biết polka cũ
+    prevote(polka.block)
+elif proposal is not None and is_valid(proposal):
+    prevote(proposal)                       # 3. rule 3 bình thường
+else:
+    prevote(NIL)
 ```
 
 #### Timeout không xóa lock, không xóa vote
@@ -805,6 +812,26 @@ if locked_block is not None and P != locked_block:
 
 1. **2f + 1 PREVOTE cho B ở round r** → được phép **PRECOMMIT B** và lock B. Precommit đi theo **polka mà node thấy**, không theo prevote của chính nó.
 2. **2f + 1 PRECOMMIT cho B ở cùng một round r'** → **finalize B**. r' là **bất kỳ round nào** của height hiện tại, và điều kiện này **không phụ thuộc lock của mình**.
+
+### Ba bổ sung của code so với flowchart gốc (vì liveness)
+
+Locking ở trên đủ cho **safety**. Nhưng nếu làm đúng nguyên văn (node đã lock thì prevote NIL, proposer luôn tạo block mới), chain có thể **đứng yên mãi**. Code thêm 3 cơ chế, không cái nào làm yếu safety.
+
+**1. Đã lock thì prevote block đã lock, không prevote NIL.**
+- Ví dụ n = 10: round 0, V0–V3 lock B, các precommit bị mất. Round 1 proposer đề xuất C. Nếu V0–V3 prevote NIL, còn V4–V9 prevote C, thì C có 6 < 7 và NIL có 4 < 7. Round nào cũng vậy, không bao giờ đủ quorum.
+- Prevote B thay vì NIL **không làm hỏng safety**: node đã lock vẫn không bao giờ prevote block khác B (trừ khi có polka mới hơn), nên lập luận phản ví dụ ở trên vẫn đúng.
+
+**2. Re-propose: proposer gửi lại block cũ** (`_propose`, log `repropose`).
+- Proposer nào đang lock B, hoặc biết polka cũ cho B, sẽ **gửi lại đúng B** (giữ nguyên header, round cũ, chữ ký, nên hash không đổi) thay vì tạo block mới.
+- Nhờ vậy node đã lock và node chưa lock cùng có cơ hội vote cho một block.
+
+**3. Polka evidence: gửi lại bằng chứng polka mỗi round mới** (`_send_polka_evidence`, log `polka_evidence`).
+- Vấn đề (review #22): chỉ V0–V3 nhận đủ 7 prevote cho B ở round 0. V4–V9 không biết B từng có polka, nên vẫn vote khác V0–V3 mãi. Gossip không gửi lại vote đã mất.
+- Cách sửa: khi vào round mới, node nào đang theo một polka cũ (đã lock, hoặc biết polka) sẽ **gửi lại cả 2f + 1 prevote có chữ ký** của polka đó, mỗi vote là một message `VOTE` với `origin` là chính node gửi lại.
+- V4–V9 tự kiểm chữ ký từng vote, thấy polka, rồi prevote B theo trường hợp 2 của `_decide_prevote`. Cả mạng hội tụ về B, thường ngay round sau.
+- An toàn vì chỉ gửi lại **vote thật**: Byzantine không giả được polka.
+
+**Round-skip** (`_round_to_skip_to`, log `round_skip`): thấy vote của **f + 1 validator khác nhau** ở một round cao hơn thì nhảy thẳng lên round đó. f + 1 voter chắc chắn có ít nhất 1 honest node, nên round đó thật sự đang diễn ra. Byzantine (tối đa f) không tự kéo được mạng nhảy round.
 
 ### Vote rules cần code (section 6.1)
 
@@ -1162,6 +1189,9 @@ flowchart LR
 | HELLO handshake | Hai bên trao đổi node_id có chữ ký ngay khi mở TCP connection |
 | ZeroTier | LAN ảo nối các máy ở nơi khác nhau qua địa chỉ IP |
 | Commit certificate | 2f + 1 PRECOMMIT có chữ ký, chứng minh một block đã finalize |
+| Re-propose | Proposer đang lock hoặc biết polka cũ gửi lại đúng block đó thay vì tạo block mới |
+| Polka evidence | 2f + 1 prevote của một polka cũ, được gửi lại mỗi round mới để node chưa thấy polka hội tụ |
+| Round-skip | Thấy vote của f + 1 validator ở round cao hơn thì nhảy lên round đó |
 | Event log / Results | Log có timestamp, được khác nhau / kết quả không timestamp, phải byte-identical |
 
 Bản đồ khái niệm (mỗi mũi tên = "cần hiểu cái này trước"):
@@ -1202,6 +1232,9 @@ flowchart TD
 - [ ] Một round gồm những bước nào? Khi nào vote NIL?
 - [ ] Locking ngăn chặn kịch bản lỗi nào?
 - [ ] Vì sao lock phải giữ qua nhiều round thay vì bỏ khi sang round mới? Khi nào mới được bỏ hoặc đổi lock?
+- [ ] Node đã lock prevote gì khi proposal là block khác? Vì sao không prevote NIL?
+- [ ] Re-propose và polka evidence giải quyết tình huống nào? Vì sao chúng không làm yếu safety?
+- [ ] Vì sao vote thứ hai của một node equivocate vẫn được đếm và forward, mà vẫn an toàn?
 - [ ] Vì sao code dùng quorum = n − f thay vì 2f + 1? Hai công thức khác nhau khi nào?
 - [ ] Chữ ký số chứng minh 2 điều gì? Vì sao người khác không giả được chữ ký của Alice?
 - [ ] Nếu không ghi nhãn PREVOTE/PRECOMMIT vào phần được ký, kẻ xấu dùng lại chữ ký của V3 thế nào dù không có secret key?

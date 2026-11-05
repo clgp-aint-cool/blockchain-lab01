@@ -15,10 +15,10 @@ chữ ký sai, message trễ/mất/trùng, proposer im lặng và validator equi
 
 | MSSV | Họ tên | GitHub | Phụ trách |
 |---|---|---|---|
-| — | — | — | A – Foundation, integration, T1/T3 |
-| — | — | — | B – Execution, faults, T4/T5/T8 |
-| — | — | — | C – TCP, HELLO, static peers, gossip, T2 |
-| — | — | — | D – Consensus, locking, Byzantine, T6/T7 |
+| 23127366 | Võ Lê Ngọc Hiếu | NgocHieu162 | A – Foundation, integration, T1/T3 |
+| 23127365 | Kiều Duy Hiếu | DuyHieu251005 | B – Execution, faults, T4/T5/T8 |
+| 23127535 | Cao Lê Gia Phú | clgp-aint-cool | C – TCP, HELLO, static peers, gossip, T2 |
+| 23127533 | Võ Thành Nhân | vtnHAN-SOLO | D – Consensus, locking, Byzantine, T6/T7 |
 
 ## 1. Cài đặt
 
