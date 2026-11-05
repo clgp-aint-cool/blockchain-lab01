@@ -12,13 +12,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from l1sim.consensus.vote_set import (
-    ADDED,
-    DUPLICATE,
-    EQUIVOCATION,
-    EQUIVOCATION_IGNORED,
-    VoteSet,
-)
+from l1sim.consensus.vote_set import ADDED, DUPLICATE, EQUIVOCATION, VoteSet
 from l1sim.crypto import KeyPair, sign, verify
 from l1sim.encoding import block_hash
 from l1sim.execution import Mempool, State, apply_block, compute_tx_root, validate_block
@@ -484,9 +478,8 @@ class ConsensusEngine:
         a polka or a commit.
 
         Logged events: ``vote_rejected`` with a ``reason`` (``unknown_voter``,
-        ``wrong_domain`` or ``bad_signature``), ``duplicate_ignored``,
-        ``equivocation_detected`` and ``equivocation_ignored`` (over the
-        ``MAX_CONFLICTING_VALUES`` cap).
+        ``wrong_domain`` or ``bad_signature``), ``duplicate_ignored`` and
+        ``equivocation_detected``.
 
         Args:
             vote: The received vote.
@@ -494,7 +487,7 @@ class ConsensusEngine:
         Returns:
             ``True`` if the vote now counts (now or at a later round or height):
             a new vote, or an equivocator's first vote for another value.
-            ``False`` for old, duplicate, ignored or invalid votes, or when the
+            ``False`` for old, duplicate or invalid votes, or when the
             engine is stopped. The node uses this to decide whether gossip
             forwards the vote, so every counted vote, a conflicting one included,
             is forwarded exactly once and reaches nodes a Byzantine voter skipped.
@@ -517,8 +510,6 @@ class ConsensusEngine:
             self._log("duplicate_ignored", **fields)
         elif result == EQUIVOCATION:
             self._log("equivocation_detected", **fields)
-        elif result == EQUIVOCATION_IGNORED:
-            self._log("equivocation_ignored", **fields)
         elif result != ADDED:
             self._log("vote_rejected", reason=self._vote_rejection(vote), **fields)
         # An equivocator's second vote counts for its own value (VoteSet), so it can

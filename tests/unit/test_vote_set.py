@@ -82,19 +82,20 @@ def test_equivocation_counts_each_vote_for_its_own_value_and_records_evidence():
     assert votes.equivocations == [(first, second)]
 
 
-def test_conflicting_values_per_voter_are_capped():
-    """A Byzantine voter cannot make the set store (and gossip) endless votes."""
+def test_every_conflicting_value_counts_once_however_many_came_first():
+    """No cap (PR #28 review): junk values sent first must not crowd out the real vote."""
     keys = _keys(4)
     votes = _vote_set(keys)
-    hashes = [HASH_A, HASH_B, "c" * 64, "d" * 64]
+    hashes = [HASH_B, "c" * 64, "d" * 64, HASH_A]
 
     results = [votes.add(_vote(keys, "V1", block_hash=h)) for h in hashes]
 
-    assert results == ["added", "equivocation", "equivocation", "equivocation_ignored"]
-    assert [votes.count(1, 0, Phase.PREVOTE, h) for h in hashes] == [1, 1, 1, 0]
-    assert len(votes.equivocations) == 2
-    assert votes.add(_vote(keys, "V1", block_hash="d" * 64)) == "equivocation_ignored"
-    assert len(votes.equivocations) == 2
+    assert results == ["added", "equivocation", "equivocation", "equivocation"]
+    assert [votes.count(1, 0, Phase.PREVOTE, h) for h in hashes] == [1, 1, 1, 1]
+    assert len(votes.equivocations) == 3
+    assert votes.add(_vote(keys, "V1", block_hash=HASH_A)) == "duplicate"
+    assert len(votes.equivocations) == 3
+    assert votes.total(1, 0, Phase.PREVOTE) == 1
 
 
 @pytest.mark.parametrize("n", [4, 10])

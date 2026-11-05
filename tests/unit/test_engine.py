@@ -387,7 +387,6 @@ def test_on_vote_returns_true_only_for_counted_votes():
     engine = net.engines["V0"]
     vote = net.make_vote("V2", Phase.PREVOTE, 1, 0, None)
     conflicting = net.make_vote("V2", Phase.PREVOTE, 1, 0, "a" * 64)
-    over_cap = [net.make_vote("V2", Phase.PREVOTE, 1, 0, c * 64) for c in "bc"]
     future = net.make_vote("V3", Phase.PRECOMMIT, 4, 2, None)
 
     assert engine.on_vote(vote) is True
@@ -395,11 +394,8 @@ def test_on_vote_returns_true_only_for_counted_votes():
     # A conflicting vote counts for its own value, so it is forwarded once...
     assert engine.on_vote(conflicting) is True
     assert engine.on_vote(conflicting) is False  # ...and not again
-    assert engine.on_vote(over_cap[0]) is True  # second conflicting value, still under the cap
-    assert engine.on_vote(over_cap[1]) is False  # third one: ignored
     assert engine.on_vote(future) is True  # kept until the engine gets there
-    names = set(net.event_names("V0"))
-    assert {"duplicate_ignored", "equivocation_detected", "equivocation_ignored"} <= names
+    assert {"duplicate_ignored", "equivocation_detected"} <= set(net.event_names("V0"))
 
 
 def test_on_vote_rejects_invalid_votes_with_a_reason():
@@ -637,12 +633,14 @@ def test_round_skip_needs_f_plus_one_validators_in_the_higher_round():
     assert ("round_skip", 3) in [(e, f.get("to_round")) for e, f in net.events["V0"]]
 
 
-def test_equivocators_votes_count_for_the_block_that_gets_committed():
-    """T7 stall: V7–V9 send V0 a precommit for B first, then their precommit for A.
+@pytest.mark.parametrize("junk", [1, 3])
+def test_equivocators_votes_count_for_the_block_that_gets_committed(junk):
+    """T7 stall: V7–V9 send V0 other precommits first, then their precommit for A.
 
     Only V1–V4 precommit A honestly, so V0 reaches 7 only if the equivocators'
-    second votes count for A too. Before the fix they were dropped and V0 waited
-    forever at height 1 while the other nodes moved on.
+    later votes count for A too. Before the fix they were dropped and V0 waited
+    forever at height 1 while the other nodes moved on. ``junk=3`` is the PR #28
+    review case: three different values first must not crowd out the vote for A.
     """
     net = Network(10, drop=lambda src, dst, message: True)
     net.start(only=["V0"])
@@ -652,10 +650,12 @@ def test_equivocators_votes_count_for_the_block_that_gets_committed():
     other = net.make_block(proposer, 1, 0, sample_txs()[:2], parent_hash=GENESIS_HASH)
     net.deliver("V0", Message(Kind.BODY, proposer, 1, block))
     digest = block_hash(block.header)
+    first_values = [block_hash(other.header), "c" * 64, "d" * 64][:junk]
 
     for voter in ("V7", "V8", "V9"):
-        fake = net.make_vote(voter, Phase.PRECOMMIT, 1, 0, block_hash(other.header))
-        net.deliver("V0", Message(Kind.VOTE, voter, 1, fake))
+        for value in first_values:
+            fake = net.make_vote(voter, Phase.PRECOMMIT, 1, 0, value)
+            net.deliver("V0", Message(Kind.VOTE, voter, 1, fake))
     for voter in ("V7", "V8", "V9", "V1", "V2", "V3", "V4"):
         vote = net.make_vote(voter, Phase.PRECOMMIT, 1, 0, digest)
         net.deliver("V0", Message(Kind.VOTE, voter, 1, vote))
@@ -672,7 +672,7 @@ def test_equivocators_votes_count_for_the_block_that_gets_committed():
         "V8",
         "V9",
     ]
-    assert len(engine.votes.equivocations) == 3  # still detected and reported
+    assert len(engine.votes.equivocations) == 3 * junk  # still detected and reported
 
 
 def test_conflicting_proposal_that_gets_committed_is_still_finalized():

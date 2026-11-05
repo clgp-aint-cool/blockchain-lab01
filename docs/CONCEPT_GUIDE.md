@@ -893,9 +893,7 @@ flowchart TD
     C -- có --> D{"Đã có vote của voter này<br/>cho (h, r, phase)?"}
     D -- "chưa" --> ADD["Lưu: votes[(h,r,phase)][voter] = vote<br/>→ đếm"]
     D -- "có, giống hệt" --> DUP["Bỏ qua: duplicate_ignored<br/>không forward"]
-    D -- "có, khác block" --> EQ{"Voter đã có ≥ 2<br/>giá trị xung đột?"}
-    EQ -- "chưa" --> EQC["Lưu, đếm cho đúng giá trị đó<br/>log: equivocation_detected<br/>forward 1 lần"]
-    EQ -- "rồi" --> EQI["Bỏ: equivocation_ignored<br/>không đếm, không forward"]
+    D -- "có, khác block" --> EQ["Lưu, đếm cho đúng giá trị đó<br/>log: equivocation_detected<br/>forward 1 lần"]
 ```
 
 ### Timeout
@@ -909,7 +907,7 @@ Byzantine gửi `PREVOTE(h, r, A)` cho một nửa mạng và `PREVOTE(h, r, B)`
 - **Vì sao phải đếm cả vote thứ hai?** Nếu chỉ giữ vote tới trước, node nhận `B` của kẻ xấu trước sẽ không bao giờ đếm vote `A` của chúng. Khi cả mạng commit `A` nhờ có vote đó, node này thiếu quorum và kẹt mãi (lỗi #27).
 - **Vì sao vẫn an toàn?** Hai quorum `q = n − f` chung nhau ít nhất `2q − n = n − 2f ≥ f + 1` validator. Muốn cả `A` lẫn `B` đạt quorum thì ít nhất `f + 1` validator phải ký cho cả hai, tức là có ít nhất 1 validator trung thực equivocate, điều không xảy ra. Tendermint cũng đếm như vậy.
 - **Vì sao phải forward?** Kẻ xấu có thể chỉ gửi vote thứ hai cho vài node. Node nào đã đếm vote đó thì forward, để nó tới được những node bị bỏ qua.
-- **Giới hạn:** mỗi validator chỉ được lưu tối đa 2 giá trị xung đột cho mỗi `(h, r, phase)`. Nếu không, kẻ xấu ký vô số hash khác nhau và mọi node đều phải lưu và forward. T7 chỉ cần 1.
+- **Vì sao không giới hạn số giá trị?** Nếu giới hạn, kẻ xấu chỉ cần gửi vài hash rác trước, vote thật cho block được commit sẽ bị loại và node lại kẹt như cũ. Cái giá là kẻ xấu có thể ký rất nhiều hash để mọi node phải lưu và forward. Hành vi flood này nằm ngoài các hành vi Byzantine của lab (`docs/BYZANTINE_SCHEMA.md`), nên ghi vào phần hạn chế.
 
 ```mermaid
 flowchart LR

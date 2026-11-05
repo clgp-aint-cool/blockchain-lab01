@@ -20,12 +20,7 @@ if TYPE_CHECKING:
 ADDED = "added"
 DUPLICATE = "duplicate"
 EQUIVOCATION = "equivocation"
-EQUIVOCATION_IGNORED = "equivocation_ignored"
 INVALID = "invalid"
-
-# Conflicting values kept per voter and slot, besides its first vote. T7 needs one; the
-# cap stops a Byzantine voter from making every node store (and gossip) endless votes.
-MAX_CONFLICTING_VALUES = 2
 
 _Slot = tuple[int, int, Phase]
 
@@ -114,8 +109,13 @@ class VoteSet:
     2. the signature must verify with the voter's public key under
        ``Domain.VOTE`` (so a TX-domain signature is rejected),
     3. a second, different vote of the same voter in the same slot is an
-       equivocation: recorded as evidence, and counted only for its own value
-       (at most :data:`MAX_CONFLICTING_VALUES` such values per voter and slot).
+       equivocation: recorded as evidence, and counted only for its own value.
+
+    There is no cap on how many values one voter may sign in a slot: a cap lets
+    a Byzantine voter send junk values first so that its vote for the committed
+    block is the one dropped, which is the stall this counting fixes. The cost
+    is that a flooding voter makes every node store its votes; flooding is not
+    one of the lab's Byzantine behaviours (``docs/BYZANTINE_SCHEMA.md``).
 
     Why an equivocator's second vote still counts: a node that received the
     Byzantine "other" vote first would otherwise never count that validator for
@@ -189,9 +189,6 @@ class VoteSet:
              new one is kept too and counts for its own value only; the pair is
              appended to :attr:`equivocations`;
            - that same conflicting vote again -> ``"duplicate"``;
-           - a new conflicting value when the voter already has
-             :data:`MAX_CONFLICTING_VALUES` of them -> ``"equivocation_ignored"``
-             (not stored, not counted);
 
         4. otherwise -> ``"added"``.
 
@@ -201,10 +198,10 @@ class VoteSet:
                 already guaranteed by :class:`l1sim.models.Vote`.
 
         Returns:
-            One of ``"added"``, ``"duplicate"``, ``"equivocation"``,
-            ``"equivocation_ignored"``, ``"invalid"``. Only ``"added"`` and
-            ``"equivocation"`` change a count, and only those are worth
-            forwarding: each stored vote is then gossiped exactly once.
+            One of ``"added"``, ``"duplicate"``, ``"equivocation"``, ``"invalid"``.
+            Only ``"added"`` and ``"equivocation"`` change a count, and only
+            those are worth forwarding: each stored vote is then gossiped
+            exactly once.
 
         Raises:
             Nothing for bad network input; bad votes return ``"invalid"``.
@@ -227,8 +224,6 @@ class VoteSet:
         later = self._conflicting.setdefault(slot, {}).setdefault(vote.voter, {})
         if vote.block_hash in later:
             return DUPLICATE  # the same conflicting vote again
-        if len(later) >= MAX_CONFLICTING_VALUES:
-            return EQUIVOCATION_IGNORED
         later[vote.block_hash] = vote
         self.equivocations.append((existing, vote))
         return EQUIVOCATION
