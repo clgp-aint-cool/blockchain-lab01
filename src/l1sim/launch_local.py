@@ -95,6 +95,20 @@ def launch_local(
     scenario_results_dir = res_root / scenario.name
     node_output_dir = working_dir / "logs/results" / scenario.name
 
+    # Clear stale results before run
+    if node_output_dir.is_dir():
+        for f in node_output_dir.glob("*.json"):
+            try:
+                f.unlink()
+            except OSError:
+                pass
+    if scenario_results_dir.is_dir():
+        for f in scenario_results_dir.glob("*.json"):
+            try:
+                f.unlink()
+            except OSError:
+                pass
+
     processes: dict[str, subprocess.Popen] = {}
 
     def spawn_node(node_id: str) -> subprocess.Popen:
@@ -176,6 +190,9 @@ def launch_local(
         # Allow brief time for file buffers to flush
         time.sleep(0.1)
 
+        # Check for timed-out processes before terminating
+        timed_out_nodes = [node_id for node_id, proc in processes.items() if proc.poll() is None]
+
         # 4. Terminate any remaining processes
         for proc in processes.values():
             if proc.poll() is None:
@@ -185,6 +202,31 @@ def launch_local(
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     proc.wait(timeout=1.0)
+
+        if timed_out_nodes:
+            raise TimeoutError(
+                f"scenario '{scenario.name}' timed out after {timeout}s: "
+                f"nodes {timed_out_nodes} did not complete"
+            )
+
+        # Check for failed processes
+        failed_nodes = {
+            node_id: proc.poll()
+            for node_id, proc in processes.items()
+            if proc.poll() is not None and proc.poll() != 0
+        }
+        if failed_nodes:
+            err_lines = []
+            for node_id, code in failed_nodes.items():
+                err = ""
+                proc = processes[node_id]
+                if proc.stderr:
+                    try:
+                        err = proc.stderr.read()
+                    except Exception:
+                        pass
+                err_lines.append(f"Node {node_id} exited with code {code}:\n{err}")
+            raise RuntimeError("\n".join(err_lines))
 
         # Copy results to custom results_root if different from default
         if res_root != working_dir / "logs/results" and node_output_dir.is_dir():
