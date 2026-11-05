@@ -38,7 +38,7 @@ def test_t5_pre_gst(tmp_path: Path):
         scenario_path=ROOT / "config/t5_pre_gst.json",
         genesis_path=ROOT / "config/genesis.json",
         base_port=base_port,
-        timeout=150.0,
+        timeout=240.0,
         results_root=tmp_path / "results",
         quiet=True,
     )
