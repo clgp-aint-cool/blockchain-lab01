@@ -1,6 +1,6 @@
 # Byzantine schema trong scenario
 
-Đề xuất của D (consensus). Cần A và B đồng ý trước khi viết `consensus/byzantine.py`.
+Schema được kiểm tra bởi `parse_byzantine` trong `consensus/byzantine.py`.
 
 Mục tiêu: một scenario ghi rõ **node nào, làm sai gì, ở height/round nào** (TEAM_PLAN, mục Reproducibility), đủ cho T3, T6, T7, và hoàn toàn tất định để giữ T8.
 
@@ -32,7 +32,7 @@ Một message gửi đi bị áp dụng quy tắc khi khớp **cả** `messages`
 | Behavior | Node làm gì | Node khác thấy gì |
 |---|---|---|
 | `silent` | Không gửi message | Timeout. Proposal bị im thì cả mạng prevote NIL, sang round sau |
-| `equivocate` | Gửi **hai** bản, cả hai ký hợp lệ. Proposal: block thật và block cùng height/round nhưng **không có tx** (block thật đã rỗng thì bản thứ hai đổi `state_hash`). Vote: vote thật và vote cho block khác (vote thật là NIL thì bản thứ hai cho proposal của round, chưa có proposal thì một hash tất định; vote thật cho block thì bản thứ hai là NIL). Bản thứ hai của **proposal** gửi trễ 2 × timeout dài nhất, để mọi node trung thực thấy block thật trước (T8); vote xung đột gửi ngay | `proposal_conflict`, `equivocation_detected`; bản thứ hai không được đếm |
+| `equivocate` | Gửi **hai** bản, cả hai ký hợp lệ. Proposal: block thật và block cùng height/round nhưng **không có tx** (block thật đã rỗng thì bản thứ hai đổi `state_hash`). Vote: vote thật và vote cho block khác (vote thật là NIL thì bản thứ hai cho proposal của round, chưa có proposal thì một hash tất định; vote thật cho block thì bản thứ hai là NIL). Bản thứ hai của **proposal** gửi trễ 2 × timeout dài nhất, để mọi node trung thực thấy block thật trước (T8); vote xung đột gửi ngay | `proposal_conflict`, `equivocation_detected`; mỗi vote được đếm cho giá trị của nó, bản lặp bị chặn |
 | `bad_signature` | Gửi message với chữ ký bị sửa (đảo bit cuối) | `vote_rejected` / `proposal_rejected`, reason `bad_signature` |
 | `wrong_domain` | Ký đúng nội dung nhưng bằng `domain` khác | `vote_rejected`, reason `wrong_domain` |
 | `invalid_proposal` | Chỉ áp dụng cho `proposal`. Gửi block có `state_hash` sai (đảo bit cuối); header vẫn được ký lại hợp lệ, nên block qua được bước kiểm chữ ký và chỉ sai ở nội dung | `invalid_block`, reason `bad_state_hash`; cả mạng prevote NIL, sang round sau |
@@ -71,7 +71,7 @@ Mong đợi: các node trung thực không finalize hai block khác nhau ở cù
 ```json
 "byzantine": [
   {"node": "V5", "behavior": "bad_signature", "messages": ["prevote"], "heights": [1]},
-  {"node": "V6", "behavior": "wrong_domain", "domain": "TX", "messages": ["precommit"], "heights": [1]}
+  {"node": "V6", "behavior": "wrong_domain", "domain": "TX", "messages": ["prevote"], "heights": [1]}
 ]
 ```
 
@@ -105,18 +105,15 @@ Mong đợi: cả mạng hết timeout và prevote NIL; height 4 finalize ở ro
 - `delay_ms` bắt buộc với `delay` và chỉ dùng với `delay`.
 - Dạng cũ `["V2"]` (chỉ có id) bị báo lỗi, vì không cho biết node làm gì.
 
-## Ai làm gì
+## Tích hợp
 
-| Người | Việc |
-|---|---|
-| D (đã làm) | `consensus/byzantine.py`: `parse_byzantine(raw, validators, max_height)` trả về các `ByzantineRule`; `Byzantine.outgoing(message, state, proposals) -> list[tuple[int, Message]]` (truyền `engine.state` và `engine.proposals`) trả 0, 1 hoặc 2 cặp `(delay_ms, message)`, với `delay_ms = 0` là gửi ngay; mỗi lần làm sai thì log `byzantine_action` (behavior, kind, height, round). Kèm unit test |
-| A (D làm thay, PR #22) | `load_scenario` gọi `parse_byzantine`. `Node._broadcast` chạy message qua `outgoing()` **trước** bước đổi BODY thành HEADER, để block thứ hai cũng trả lời được BODY_REQUEST. Cặp có `delay_ms > 0` thì gửi bằng `loop.call_later`. Bỏ đoạn `run_node` từ chối scenario có `byzantine` |
-| B | `config/t6_silent_proposer.json` và `config/t7_byzantine.json` đã có trên PR #22 theo dạng mới (T7 `max_height` 9). Còn lại: `check_safety` chỉ so chain của node trung thực (bỏ các `node` trong `byzantine`) |
+`load_scenario` kiểm tra schema bằng `parse_byzantine`. `Node._broadcast` gọi
+`Byzantine.outgoing` trước khi chuyển BODY thành HEADER, để các block gửi ra
+đều trả lời được BODY_REQUEST. Message có delay được hẹn bằng event loop.
+Mỗi lần áp dụng quy tắc có event `byzantine_action`.
 
-## Cần chốt
-
-1. **Equivocate gửi cả hai bản cho mọi peer** (đề xuất) hay **chia đôi mạng**? Chia đôi là tấn công mạnh hơn, nhưng `gossip.send_to` hiện chỉ gửi message DIRECT, nên phải sửa gossip. Đề xuất: làm kiểu gửi cả hai, ghi kiểu chia đôi vào phần limitations của report.
-2. **`silent` không ghi `messages`** thì node im lặng hoàn toàn, tức giống crash. T6 nên ghi `"messages": ["proposal"]` để đúng nghĩa "proposer im lặng".
+`silent` không ghi `messages` áp dụng cho cả proposal, prevote và precommit;
+T6 chỉ im lặng proposal. T3 thực tế dùng `config/t3_bad_sig.json`.
 
 ## Results
 

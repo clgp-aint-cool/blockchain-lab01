@@ -24,7 +24,7 @@ Học theo 5 tầng, từ dưới lên: mỗi tầng chỉ dựa vào tầng tr�
 flowchart BT
     T1["Tầng 1 – Nền tảng blockchain<br/>state, tx, block, ledger"]
     T2["Tầng 2 – Cryptography<br/>hash, signature, encoding"]
-    T3["Tầng 3 – Network P2P<br/>TCP, discovery, gossip, fault"]
+    T3["Tầng 3 – Network P2P<br/>TCP, HELLO, gossip, fault"]
     T4["Tầng 4 – Consensus BFT<br/>quorum, prevote, precommit, lock"]
     T5["Tầng 5 – Reproducibility<br/>results byte-identical, seed"]
     T1 --> T2 --> T3 --> T4 --> T5
@@ -35,7 +35,7 @@ flowchart BT
 | --- | --- | --- | --- |
 | 1 | Nền tảng blockchain | Dữ liệu được tổ chức thế nào? | Phải hiểu chắc |
 | 2 | Cryptography | Làm sao biết message là thật? | Hiểu ý tưởng, không cần toán |
-| 3 | Network P2P | Node tìm nhau, gửi message cho nhau thế nào, mạng hỏng ra sao? | Hiểu neighbor, discovery, gossip, các loại lỗi |
+| 3 | Network P2P | Node tìm nhau, gửi message cho nhau thế nào, mạng hỏng ra sao? | Hiểu peer tĩnh, HELLO, gossip, các loại lỗi |
 | 4 | Consensus BFT | Làm sao nhiều node đồng ý một block? | Phần khó nhất, đọc 2–3 lần |
 | 5 | Reproducibility | Làm sao giảng viên chạy lại ra đúng kết quả của nhóm? | Hiểu nguyên tắc |
 
@@ -360,22 +360,20 @@ flowchart LR
     V1 <-- TCP --> V7
 ```
 
-*Mỗi node chỉ giữ TCP connection với vài neighbor, không nối tới tất cả. Node trên laptop và homelab nói chuyện với nhau y như đang chung một LAN.*
+*Sơ đồ minh họa một số kết nối; bản hiện tại dùng full mesh từ địa chỉ tĩnh.*
 
 ### ZeroTier là gì, với code của mình
 
 - **ZeroTier** tạo một **LAN ảo** giữa các máy ở những nơi khác nhau, ví dụ laptop ở trường và homelab ở nhà. Mỗi máy tham gia được cấp một IP trong cùng mạng ảo, ví dụ `10.147.17.10` và `10.147.17.20`, và gọi nhau như đang cắm chung một switch.
-- Vì là LAN ảo, ZeroTier hỗ trợ **broadcast và multicast**, điều mà Internet thường không có. Nhóm dùng tính năng này để **tự tìm peer**, xem mục Peer discovery.
 - **Với code:** ZeroTier chỉ là "một LAN nữa". Code không cần biết ZeroTier tồn tại; chỉ cần dùng IP ZeroTier làm địa chỉ của node.
 - **Thành viên khác** cũng có thể cài ZeroTier và join cùng network, sau khi người quản trị network duyệt. Như vậy ai cũng test được nhiều máy.
 
 ### Peer, neighbor và topology
 
 - **Peer:** node khác trong mạng mà mình biết địa chỉ.
-- **Neighbor:** peer mà mình **đang giữ TCP connection trực tiếp**. V0 có thể có neighbor là V1, V6, nhưng không nối thẳng tới V5.
+- **Neighbor:** peer mà mình **đang giữ TCP connection trực tiếp**. Trong full mesh của lab, mỗi validator nối trực tiếp tới mọi validator còn lại.
 - **Topology:** bản đồ "ai nối với ai" của cả mạng.
-- **Vì sao không nối tới tất cả:** đó là bản chất P2P. Mạng thật có hàng nghìn node, không ai giữ được connection tới tất cả. Message tới các node xa nhờ **gossip**, xem bên dưới.
-- **Mỗi node cần đủ neighbor:** ít nhất f + 1. Nếu một node chỉ có 1 neighbor mà neighbor đó là Byzantine và không chuyển tiếp message, node đó bị cô lập.
+- **Full mesh trong lab:** mọi cặp validator nối TCP trực tiếp. Gossip vẫn forward và dedup để xử lý đường gửi bị drop hoặc message trùng.
 
 ### TCP connection & message framing
 
@@ -393,58 +391,16 @@ flowchart LR
 
 - **Python:** dùng `asyncio`, có sẵn. Một process dùng `asyncio` xử lý được nhiều TCP connection cùng lúc mà không cần tự quản lý thread. Chạy song song thật đến từ việc có nhiều process.
 
-### Peer discovery: node tự tìm nhau
+### Địa chỉ tĩnh và HELLO
 
-**Vấn đề:** node mới bật lên chỉ biết chính nó. Làm sao nó biết các node khác đang ở IP và port nào?
-
-**Hai câu hỏi tách riêng:**
-
-- **"Ai được tham gia?"** do `config/genesis.json` quyết định: danh sách validator id và public key, cố định suốt lần chạy. Discovery **không** thêm validator mới.
-- **"Validator đó đang ở địa chỉ nào?"** do discovery tìm ra lúc chạy.
-
-**Unicast, broadcast, multicast là gì:**
-
-| Kiểu gửi | Gửi tới | Ví dụ |
-| --- | --- | --- |
-| Unicast | Đúng một máy | TCP connection bình thường |
-| Broadcast | Mọi máy trong cùng LAN | Gửi tới `255.255.255.255` |
-| Multicast | Mọi máy đã đăng ký nghe một "kênh" | Gửi tới nhóm `239.1.1.1`, ai join nhóm này mới nhận |
-
-Broadcast và multicast **chỉ chạy trong một LAN**, không đi qua Internet. ZeroTier làm các máy thành một LAN ảo, nên chúng chạy được giữa laptop và homelab.
-
-**Nhóm tìm peer bằng multicast beacon:** mỗi node định kỳ gửi một gói UDP nhỏ `ANNOUNCE {node_id, tcp_addr}` có chữ ký tới nhóm multicast. Node nào đang nghe sẽ thêm `node_id → tcp_addr` vào **address book**. Không cần biết trước địa chỉ nào cả.
-
-**Vì sao chỉ cần multicast:** validator set cố định trong genesis, và mọi node luôn nằm trong cùng một LAN: localhost, hoặc LAN ảo ZeroTier. Các blockchain thật chạy qua Internet thì không có multicast, nên phải dùng cách khác như **bootstrap node**: một địa chỉ ghi sẵn để hỏi danh sách peer. Lab này không cần cách đó.
-
-```mermaid
-sequenceDiagram
-    participant N as Node mới V7
-    participant G as Nhóm multicast 239.1.1.1
-    participant P as Node V4
-    P->>G: ANNOUNCE V4 @ 10.147.17.20:9004, có chữ ký
-    G->>N: ANNOUNCE V4 ...
-    N->>N: verify chữ ký, thêm V4 vào address book
-    N->>G: ANNOUNCE V7 @ 10.147.17.10:9007, có chữ ký
-    G->>P: ANNOUNCE V7 ...
-    N->>N: xếp hạng peer, V4 nằm trong top → kết nối
-    N->>P: TCP connect + HELLO có chữ ký
-    P->>N: HELLO có chữ ký
-    Note over N,P: Cả hai verify bằng public key trong genesis → V4 thành neighbor của V7
-```
-
-**Quan trọng: multicast chỉ dùng để TÌM PEER, không dùng để gửi vote hay block.** Nếu gửi vote bằng multicast thì mọi node nghe được mọi thứ trực tiếp, không còn neighbor hay gossip, tức là không còn P2P nữa. Thêm nữa, UDP có thể mất gói và không có thứ tự. Mọi message của blockchain đi bằng **TCP tới neighbor + gossip**.
-
-**HELLO handshake:** ngay sau khi mở TCP connection, hai bên gửi `HELLO {node_id, listen_addr, chain_id}` có chữ ký với domain `HELLO:lab01`. Bên nhận verify bằng public key của `node_id` trong genesis. Sai chữ ký, sai `chain_id` hoặc id không có trong genesis → đóng connection, log `reason`. Nhờ vậy Byzantine node không mạo danh được validator khác, kể cả khi nó gửi ANNOUNCE giả.
-
-**Chọn neighbor:** xếp hạng mọi peer trong address book theo `sha256(seed | self_id | peer_id)`, kết nối tới `target_degree` peer đứng đầu, ví dụ 4. Nhận thêm inbound connection tới tối đa `max_degree`.
-
-- **Vì sao dùng hash thay vì chọn ngẫu nhiên hay chọn ai trả lời trước:** cùng seed → cùng topology mỗi lần chạy, kể cả khi thứ tự node bật lên khác nhau. Điều này giúp giảng viên chạy lại ra đúng kết quả, xem Tầng 5. Hash cũng phân bố đều, nên topology giống một random graph, và Byzantine node không tự chọn được vị trí đứng đầu bảng xếp hạng của node khác.
-
-**Neighbor chết:** neighbor mất kết nối quá `peer_timeout` → bỏ, log `peer_removed`, kết nối tới peer xếp hạng tiếp theo, log `peer_added`.
+Validator set và public key lấy từ `config/genesis.json`. Địa chỉ lấy từ
+`network.peers`, hoặc fallback localhost của CLI. `StaticPeers` thiết lập full mesh.
+Ngay sau khi mở TCP, hai bên trao đổi HELLO có chữ ký thuộc domain `HELLO:lab01`.
+Sai chữ ký, sai chain hoặc ID không có trong genesis bị từ chối với reason.
 
 ### Gossip: chuyển tiếp message qua neighbor
 
-Vì mỗi node chỉ nối tới neighbor, một message muốn tới **mọi** node thì phải được **chuyển tiếp nhiều chặng**. Cách đơn giản nhất gọi là **gossip kiểu flooding**:
+Nếu một đường gửi trực tiếp bị drop, message có thể tới node đích qua peer khác nhờ **chuyển tiếp nhiều chặng**. Cách đơn giản nhất gọi là **gossip kiểu flooding**:
 
 1. Node tạo message như vote, header, tx → gửi cho **mọi neighbor**.
 2. Node nhận một message:
@@ -468,7 +424,7 @@ flowchart LR
 | Lớp | Bỏ trùng theo | Mục đích |
 | --- | --- | --- |
 | Network, trong gossip | message id = hash của cả message | Không chuyển tiếp một message nhiều lần |
-| Consensus, rule 7 | validator, height, round, phase | Không đếm 2 vote của cùng một validator |
+| Consensus, rule 7 | validator, height, round, phase, giá trị | Mỗi validator chỉ được tính một lần cho mỗi giá trị; vote xung đột vẫn được ghi evidence |
 
 ### Fault injection: tự tạo mạng không ổn định
 
@@ -489,11 +445,11 @@ Cùng message trên cùng đường nối luôn có cùng số phận, **bất k
 flowchart LR
     APP["Node gửi message<br/>tới neighbor X"] --> FI{"sha256(seed, src,<br/>X, message_id)"}
     FI -- "drop" --> D0["Bỏ, log: drop"]
-    FI -- "delay d" --> D1["Chờ d ms rồi gửi<br/>log: delay"]
-    FI -- "duplicate" --> D2["Gửi 2 bản<br/>log: duplicate"]
+    FI -- "delay d" --> DELAY["Chờ d ms rồi gửi<br/>log: delay"]
+    FI -- "duplicate" --> DUP["Gửi 2 bản<br/>log: duplicate"]
     FI -- "bình thường" --> TCP["Gửi qua TCP<br/>log: send"]
-    D1 --> TCP
-    D2 --> TCP
+    DELAY --> TCP
+    DUP --> TCP
 ```
 
 ### 4 kiểu lỗi mạng
@@ -564,27 +520,6 @@ sequenceDiagram
     else Header sai
         R->>R: Reject + log lý do, không xin body, không chuyển tiếp
     end
-```
-
-### Block sync: node vào trễ hoặc vừa restart bắt kịp chain
-
-**Vấn đề:** V8 bị tắt lúc chain ở height 3, bật lại lúc các node khác đã ở height 7. V8 chỉ có block 1–3. Nó không vote được cho height 7, vì nó chưa biết block 4–6 nên không kiểm tra được `parent_hash` và state. Nếu không xử lý, V8 sẽ **kẹt mãi** ở height 4. Tình huống tương tự xảy ra khi một node bật lên trễ, sau khi chain đã chạy.
-
-- Chain vẫn chạy tiếp, vì chỉ cần 2f + 1 node hoạt động. Nhưng V8 thì vô dụng cho tới khi bắt kịp.
-- **Block sync** là cách V8 bắt kịp: hỏi neighbor "cho tôi các block từ height 4", nhận về block 4–6, kiểm tra, apply, rồi tham gia consensus ở height 7.
-- **Không cần tin neighbor:** mỗi block gửi kèm **commit certificate** = 2f + 1 PRECOMMIT có chữ ký cho block đó. V8 tự verify các chữ ký; nếu đủ quorum thì block đó chắc chắn đã được finalize. Neighbor Byzantine không làm giả được certificate, vì không giả được chữ ký của honest validator.
-- **Liên hệ slides:** đây là phiên bản nhỏ của **full sync** trong slide về synchronization modes: replay các block từ peer và tự verify từng block.
-
-```mermaid
-sequenceDiagram
-    participant V8 as V8 vừa restart, có tới height 3
-    participant N as Neighbor, đang ở height 7
-    V8->>N: HELLO
-    N->>V8: HELLO, kèm height hiện tại = 6 đã finalize
-    V8->>N: GET_BLOCKS from_height = 4
-    N->>V8: BLOCKS: block 4, 5, 6, mỗi block kèm 2f+1 PRECOMMIT
-    V8->>V8: verify certificate, apply block 4 → 5 → 6
-    Note over V8: Bắt kịp → tham gia consensus height 7
 ```
 
 ### Rate limit & peer blocking
@@ -1039,7 +974,7 @@ Slides là "bức tranh lớn" về node ngoài đời thật. Lab chỉ làm ph
 
 ```mermaid
 flowchart TD
-    P2P["P2P Network<br/>✅ lab: TCP, discovery, gossip, fault injection"]
+    P2P["P2P Network<br/>✅ lab: TCP, HELLO, gossip, fault injection"]
     CON["Consensus Engine<br/>✅ lab: Tendermint-style"]
     EXE["Execution Engine<br/>✅ lab: key–value state"]
     DB["State / History DB<br/>✅ lab: ledger + state trong RAM của từng node"]
@@ -1067,7 +1002,6 @@ flowchart LR
 | Processing pipeline (receive → validate → execute → commit → serve) | Thứ tự xử lý block | **Làm bước 1–4**, dedup ở bước 1 |
 | Merkle Patricia Trie, Merkle proof | Cây hash cho state, chứng minh từng key | Tùy chọn; hash cả state đã sorted là đủ |
 | Block header / body / receipts | Header nhỏ, body chứa tx | Header + body, **không cần receipts/gas** |
-| Full / Snap / Checkpoint sync | Đổi tốc độ khởi động lấy mức độ tin tưởng | Làm phiên bản nhỏ của full sync: **block sync** cho node vào trễ hoặc restart, xem Tầng 3 |
 | Reorganization (reorg) | Chain kiểu Bitcoin có thể đổi nhánh | **Không có reorg sau finality**. Nên viết rõ điểm khác biệt này trong report |
 | Crash recovery, WAL | Ghi ý định trước khi commit | Không bắt buộc; liên hệ: validator phải nhớ đã ký vote gì để không ký 2 lần |
 | RPC, rate limit, API security | Chống spam ở cổng public | Ý tưởng rate limit xuất hiện ở network layer (block overactive peers) |
@@ -1224,12 +1158,9 @@ flowchart LR
 | Gossip (flooding) | Nhận message mới thì chuyển tiếp cho mọi neighbor; message đã thấy thì bỏ qua |
 | Broadcast | Gửi tới mọi node trong mạng (thực hiện bằng gossip) |
 | Fault injection | Lớp chủ động delay/drop/duplicate message theo config + seed |
-| Peer discovery | Cách node tự tìm địa chỉ của các node khác |
-| Multicast beacon | Gói UDP gửi tới một nhóm multicast trong LAN để báo "tôi ở đây" |
 | Address book | Danh sách `node_id → địa chỉ` mà node đã biết |
 | HELLO handshake | Hai bên trao đổi node_id có chữ ký ngay khi mở TCP connection |
-| ZeroTier | LAN ảo nối các máy ở nơi khác nhau, hỗ trợ multicast |
-| Block sync | Node vào trễ xin neighbor các block đã finalize, kèm commit certificate |
+| ZeroTier | LAN ảo nối các máy ở nơi khác nhau qua địa chỉ IP |
 | Commit certificate | 2f + 1 PRECOMMIT có chữ ký, chứng minh một block đã finalize |
 | Event log / Results | Log có timestamp, được khác nhau / kết quả không timestamp, phải byte-identical |
 
@@ -1246,7 +1177,7 @@ flowchart TD
         TX["Transaction + nonce"] --> STATE["State transition"] --> BLOCK["Block / chain"]
     end
     subgraph L3["Tầng 3 – Network"]
-        DISC["Peer discovery"] --> GOS["Gossip"]
+        PEERS["Static peers + HELLO"] --> GOS["Gossip"]
         GST["Partial synchrony / GST"]
     end
     subgraph L4["Tầng 4 – Consensus"]
@@ -1279,7 +1210,5 @@ flowchart TD
 - [ ] Proposer chết thì chuyện gì xảy ra, từng bước?
 - [ ] Vì sao không được dùng `time.time()` trong node logic?
 - [ ] V0 không nối trực tiếp tới V5, vậy vote của V0 tới V5 bằng cách nào? Vì sao message không bị chuyển tiếp vô hạn?
-- [ ] Node mới bật lên tìm được các node khác bằng cách nào? Vì sao multicast chỉ dùng để tìm peer, không dùng để gửi vote?
 - [ ] Vì sao quyết định drop/delay phải tính bằng hash của message thay vì `rng.random()`?
-- [ ] Một node restart sau khi chain đã đi tiếp thì bắt kịp bằng cách nào, và vì sao không cần tin neighbor?
 - [ ] Vì sao lab không có reorg, trong khi slides có nói về reorg?

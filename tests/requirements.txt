@@ -1,0 +1,5 @@
+# Self-contained dependencies: the submission zip does not include pyproject.toml.
+cryptography>=42
+pytest>=8
+pytest-cov>=5
+ruff>=0.6

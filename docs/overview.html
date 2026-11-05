@@ -144,7 +144,7 @@
       <tr><td><b>Participant</b><br><span class="pill">Alice, Bob</span></td><td>Ký tx để sửa key của chính mình, ví dụ <code>Alice/message</code></td></tr>
       <tr><td><b>Validator</b><br><span class="pill">V0…V9</span></td><td>Giữ ledger và state, đề xuất block khi tới lượt, prevote, precommit, finalize</td></tr>
       <tr><td><b>genesis.json</b></td><td><code>chain_id</code>, <code>seed</code>, danh sách validator id và public key</td></tr>
-      <tr><td><b>Discovery</b></td><td>Multicast beacon <code>ANNOUNCE</code> để tìm địa chỉ, rồi <code>HELLO</code> có chữ ký để xác thực</td></tr>
+      <tr><td><b>Static peers + HELLO</b></td><td>Địa chỉ validator được cấu hình sẵn, dùng <code>HELLO</code> có chữ ký để xác thực</td></tr>
       <tr><td><b>Gossip</b></td><td>Nhận message mới thì chuyển tiếp cho mọi neighbor, đã thấy thì bỏ</td></tr>
       <tr><td><b>Fault injection</b></td><td>Tự gây delay, drop, duplicate trên từng đường nối, quyết định bằng hash</td></tr>
       <tr><td><b>Scenario</b></td><td>Mô tả tx, lỗi mạng, node Byzantine cho từng test T1–T8</td></tr>
@@ -157,9 +157,9 @@
 <p class="sub">Message gửi đi đi từ trên xuống, message nhận được đi từ dưới lên. Chữ cái bên phải là người phụ trách trong Team Plan.</p>
 <div class="grid g2">
   <div class="layers">
-    <div class="layer"><div><b>node.py</b><br><span>nhận message, route theo loại: TX, HEADER, BODY, VOTE, BLOCKS</span></div><div class="who">A</div></div>
-    <div class="layer"><div><b>consensus</b> · <b>execution</b> · <b>block_sync</b><br><span>vote_set, engine, lock, timeout · state, mempool, validate_block · bắt kịp chain</span></div><div class="who">D · B · D</div></div>
-    <div class="layer"><div><b>gossip</b> · <b>discovery</b><br><span>flooding, dedup theo message id · beacon, HELLO, chọn neighbor</span></div><div class="who">C</div></div>
+    <div class="layer"><div><b>node.py</b><br><span>nhận message, route theo loại: TX, HEADER, BODY, VOTE</span></div><div class="who">A</div></div>
+    <div class="layer"><div><b>consensus</b> · <b>execution</b><br><span>vote_set, engine, lock, timeout · state, mempool, validate_block</span></div><div class="who">D · B</div></div>
+    <div class="layer"><div><b>gossip</b> · <b>static peers</b><br><span>flooding, dedup theo message id · địa chỉ tĩnh, HELLO</span></div><div class="who">C</div></div>
     <div class="layer"><div><b>peer_limits</b> · <b>faults</b><br><span>rate limit, block peer · delay / drop / duplicate theo hash</span></div><div class="who">B</div></div>
     <div class="layer"><div><b>tcp_transport</b><br><span>asyncio, framing 4 bytes độ dài, reconnect</span></div><div class="who">C</div></div>
     <div class="layer" style="background:var(--code)"><div><b>Nền tảng dùng chung</b><br><span>encoding · crypto (Ed25519, SHA-256) · types · config · logger</span></div><div class="who">A</div></div>
@@ -464,7 +464,7 @@ const SCENARIOS = [
            bars: [{ l: "PREVOTE B", n: 10, c: "--accent" }, { l: "PRECOMMIT B", n: 10, c: "--ok" }],
            log: ["recv PRECOMMIT B ×10 validator"] } },
     { t: "9. Finalize B",
-      d: "≥ 7 PRECOMMIT → B <b>finalized vĩnh viễn</b>. V0 append B vào ledger, apply state thật, lưu commit certificate (7 precommit có chữ ký) để node vào trễ tự verify khi block sync.",
+      d: "≥ 7 PRECOMMIT → B <b>finalized vĩnh viễn</b>. V0 append B vào ledger, apply state thật, lưu commit certificate (7 precommit có chữ ký) làm bằng chứng finality.",
       code: "ledger.append(B); state = apply(state, B.txs)\nlog FINALIZE height=3 hash=B state_hash=…",
       s: { phase: 4, ledger: [...L0, "#3 B"], newBlock: true, state: '{"Alice/message": "hello", "Bob/message": "hi"}', mempool: "trống",
            log: ["FINALIZE height=3 round=0 proposer=V3 hash=B"] } },

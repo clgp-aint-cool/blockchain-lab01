@@ -54,3 +54,17 @@ Link the PR to its issue with `Closes #12` in the description.
 - [ ] Determinism preserved (no wall-clock time, unseeded randomness, or unordered dict/set iteration in hashed/logged output)
 - [ ] Logs include any new network/consensus event
 - [ ] README/docs updated if behaviour or commands changed
+
+## Submission packaging
+
+The repository provides `scripts/package.py` and the Bash wrapper `scripts/package.sh`.
+When preparing a submission, complete the member roster in README and provide the final report:
+
+```bash
+python scripts/package.py --report REPORT.pdf
+```
+
+The archive name uses student IDs in roster order. Its enclosing `Lab01_...` directory
+contains exactly `src/`, `tests/`, `logs/`, `config/`, `README.md`, and `REPORT.pdf`.
+Packaging excludes repository tools, caches, and temporary test output. An existing archive
+is never overwritten. The team must check that the report meets the 10-page limit.

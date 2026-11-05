@@ -1,12 +1,9 @@
-# Devnet: test chain ngay hôm nay (tạm thời)
+# Devnet: dashboard thử chain
 
-Thư mục `devnet/` **không có trong file zip nộp bài**. Nó chỉ để nhóm chạy thử cả chain trong
-lúc chưa có `node.py`, và sẽ bị xoá theo [docs/DEVNET_TO_PROJECT.md](../docs/DEVNET_TO_PROJECT.md).
-Phần nhóm còn thiếu so với devnet: [docs/DEVNET_GAP_ANALYSIS.md](../docs/DEVNET_GAP_ANALYSIS.md).
-
-`devnet/` chạy mọi node trong **một process**, nối nhau bằng TCP thật, có dashboard web.
-Nó dùng code thật của nhóm (network, consensus, execution, config, logger, client), chỉ đứng
-thay những phần chưa viết (`node.py`, `run_node.py`, `launch_local.py`, `faults.py`).
+`devnet/` chạy nhiều node trong một process, nối nhau bằng TCP thật và có dashboard web.
+Nó dùng chung consensus, execution, network, config và logging của dự án.
+CLI chính và E2E T1–T8 dùng `src/l1sim/node.py`, mỗi validator một process riêng;
+xem [README](../README.md) để reproduce bộ kiểm chứng.
 
 ## 1. Demo nhanh (4 node, tx ngẫu nhiên)
 
@@ -51,7 +48,6 @@ python devnet/run.py --scenario config/t1_normal.json --headless && diff -r /tmp
 | **Tắt** tối đa f node (10 node thì f = 3) | chain vẫn chạy; tắt trúng proposer thì timeout sang round mới (T6) |
 | Tắt f + 1 node | chain dừng, không finalize gì mâu thuẫn (safety) |
 | Thanh **drop / delay** | round chậm hơn, chain vẫn giống nhau |
-| **Bật lại** node đã tắt | thiếu sót đã biết: chưa có block sync nên node đó bị tụt lại |
 
 Làm tương tự bằng `curl` (dashboard phải đang chạy):
 
