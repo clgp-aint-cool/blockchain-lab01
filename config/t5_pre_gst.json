@@ -24,7 +24,7 @@
     "max_delay_ms": 200,
     "drop_rate": 0.3,
     "duplicate_rate": 0.1,
-    "gst_height": 1,
+    "gst_height": 2,
     "delta_ms": 500
   },
   "consensus": {
