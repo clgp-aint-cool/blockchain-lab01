@@ -473,7 +473,8 @@ class ConsensusEngine:
         :meth:`VoteSet.add`, which checks the signature, deduplicates (rule 7)
         and detects equivocation. Votes for future rounds and heights are kept
         there until the engine reaches them. When a vote for the current height
-        is added, the engine re-checks every rule, because that vote may complete
+        is added, or is an equivocator's second vote (which counts for its own
+        value), the engine re-checks every rule, because that vote may complete
         a polka or a commit.
 
         Logged events: ``vote_rejected`` with a ``reason`` (``unknown_voter``,
@@ -510,7 +511,9 @@ class ConsensusEngine:
             self._log("equivocation_detected", **fields)
         elif result != ADDED:
             self._log("vote_rejected", reason=self._vote_rejection(vote), **fields)
-        elif vote.height == self.height:
+        # An equivocator's second vote counts for its own value (VoteSet), so it can
+        # complete a quorum just like a new vote.
+        if result in (ADDED, EQUIVOCATION) and vote.height == self.height:
             self._progress()
         return result == ADDED
 

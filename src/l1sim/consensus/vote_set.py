@@ -94,7 +94,7 @@ class VoteSet:
     """Stores validated votes for every round and counts them per (height, round, phase).
 
     Votes are kept in slots keyed by ``(height, round, phase)``; inside a slot
-    each validator has at most one vote (rule 7). Votes of every round of the
+    each validator is counted at most once per value (rule 7). Votes of every round of the
     current height are kept: a round change never clears anything, because a
     late PRECOMMIT from an older round can still complete a commit for that
     round. Only :meth:`prune_below` removes votes, and the engine calls it when
@@ -108,7 +108,16 @@ class VoteSet:
     1. the voter must be in the validator set,
     2. the signature must verify with the voter's public key under
        ``Domain.VOTE`` (so a TX-domain signature is rejected),
-    3. the voter must not already have a different vote in the same slot.
+    3. a second, different vote of the same voter in the same slot is an
+       equivocation: recorded as evidence, and counted only for its own value.
+
+    Why an equivocator's second vote still counts: a node that received the
+    Byzantine "other" vote first would otherwise never count that validator for
+    the block the rest of the network commits, and could wait forever (seen in
+    T7: one node stuck while the others moved on). Counting it is safe: two
+    values can both reach a quorum q only if at least ``2q - n = n - 2f >= f + 1``
+    validators voted for both, so at least one honest validator would have
+    equivocated, which never happens. Tendermint's vote set does the same.
 
     Attributes:
         quorum: Number of matching votes needed for a quorum, from
@@ -116,10 +125,10 @@ class VoteSet:
         f: Fault tolerance, from :func:`fault_tolerance`. ``f + 1`` voters
             always include at least one honest validator (round-skip).
         equivocations: Evidence of every equivocation detected, as
-            ``(first_vote, conflicting_vote)`` pairs in detection order. The
-            first vote is the one that is counted; the conflicting one is never
-            counted. The list survives :meth:`prune_below` so that it can be
-            written to the results file (test T7).
+            ``(first_vote, conflicting_vote)`` pairs in detection order. Each
+            vote counts only for its own value. The list survives
+            :meth:`prune_below` so that it can be written to the results file
+            (test T7).
 
     Example:
         >>> votes = VoteSet(validator_keys)            # 4 validators -> quorum 3
@@ -147,6 +156,8 @@ class VoteSet:
         self.quorum: int = quorum_size(len(self._keys))
         self.f: int = fault_tolerance(len(self._keys))
         self._slots: dict[_Slot, dict[str, Vote]] = {}
+        # Later votes of an equivocator, per slot and voter, keyed by block hash (or None).
+        self._conflicting: dict[_Slot, dict[str, dict[str | None, Vote]]] = {}
         self.equivocations: list[tuple[Vote, Vote]] = []
         self._evidence: set[tuple[str, int, int, Phase, str | None]] = set()
 
@@ -154,9 +165,9 @@ class VoteSet:
         """Validate a vote and store it if it is the voter's first vote in its slot.
 
         This implements rule 7 (each validator is counted at most once per
-        ``(height, round, phase)``) and the equivocation handling from the
-        Concept Guide: keep the first vote, do not count the second, record
-        evidence.
+        value in a ``(height, round, phase)``) and the equivocation handling:
+        record evidence, and count each vote only for its own value (see the
+        class docstring for why that is safe).
 
         Checks happen in this order, matching the Concept Guide flowchart:
 
@@ -168,10 +179,11 @@ class VoteSet:
              Ed25519 signatures are deterministic, so a re-delivered vote is
              byte-for-byte identical;
            - different ``block_hash`` (a block vs. another block, or a block vs.
-             NIL) -> ``"equivocation"``. The stored vote is kept, the new one is
-             not counted, and the pair is appended to :attr:`equivocations`
-             once. Receiving the same conflicting vote again returns
-             ``"equivocation"`` again but does not add a second evidence entry;
+             NIL) -> ``"equivocation"``. The first vote stays the voter's vote
+             for :meth:`total` and :meth:`voters`; the new one is kept too and
+             counts for its own value only; the pair is appended to
+             :attr:`equivocations` once. Receiving the same conflicting vote
+             again returns ``"equivocation"`` again and changes nothing;
 
         4. otherwise -> ``"added"``.
 
@@ -182,7 +194,7 @@ class VoteSet:
 
         Returns:
             One of ``"added"``, ``"duplicate"``, ``"equivocation"``, ``"invalid"``.
-            Only ``"added"`` changes any count.
+            ``"added"`` and the first ``"equivocation"`` for a value change a count.
 
         Raises:
             Nothing for bad network input; bad votes return ``"invalid"``.
@@ -206,6 +218,8 @@ class VoteSet:
         if evidence_key not in self._evidence:
             self._evidence.add(evidence_key)
             self.equivocations.append((existing, vote))
+        later = self._conflicting.setdefault(slot, {}).setdefault(vote.voter, {})
+        later.setdefault(vote.block_hash, vote)
         return EQUIVOCATION
 
     def count(self, height: int, round: int, phase: Phase, block_hash: str | None) -> int:
@@ -219,11 +233,10 @@ class VoteSet:
                 NIL is its own value: NIL votes never count towards a block.
 
         Returns:
-            The number of counted votes (duplicates and equivocations excluded).
-            ``0`` for a slot that has no votes.
+            The number of distinct voters with a vote for that value, an
+            equivocator's second vote included. ``0`` for a slot that has no votes.
         """
-        votes = self._slots.get((height, round, phase), {})
-        return sum(1 for vote in votes.values() if vote.block_hash == block_hash)
+        return len(self.votes_for(height, round, phase, block_hash))
 
     def total(self, height: int, round: int, phase: Phase) -> int:
         """Return how many distinct validators voted in a slot, whatever they voted for.
@@ -245,9 +258,9 @@ class VoteSet:
         """Return the block hash that reached a quorum in a slot, if any.
 
         A PREVOTE quorum for a block is a "polka"; a PRECOMMIT quorum for a
-        block means the block can be finalized. Because each validator counts at
-        most once per slot and ``quorum > n / 2``, at most one value can reach a
-        quorum in a slot, so the answer is unique.
+        block means the block can be finalized. With at most f equivocators, at
+        most one value can reach a quorum in a slot (see the class docstring), so
+        the answer is unique.
 
         NIL is handled separately by :meth:`has_nil_quorum`; this method never
         reports a NIL quorum. ``None`` therefore always means "no block has a
@@ -262,9 +275,11 @@ class VoteSet:
             The 64-character block hash with at least :attr:`quorum` votes, or
             ``None``.
         """
-        votes = self._slots.get((height, round, phase), {})
-        hashes = sorted({vote.block_hash for vote in votes.values() if vote.block_hash})
-        for block_hash in hashes:
+        slot = (height, round, phase)
+        hashes = {vote.block_hash for vote in self._slots.get(slot, {}).values()}
+        for later in self._conflicting.get(slot, {}).values():
+            hashes.update(later)
+        for block_hash in sorted(h for h in hashes if h):
             if self.count(height, round, phase, block_hash) >= self.quorum:
                 return block_hash
         return None
@@ -291,7 +306,7 @@ class VoteSet:
 
         Used for round-skip: f + 1 distinct voters in a higher round prove that
         at least one honest validator is already there. An equivocator counts
-        once, because only its first vote per slot is stored.
+        once: this is a set of voter ids, whatever they voted for.
 
         Args:
             height: Block height.
@@ -336,12 +351,20 @@ class VoteSet:
             block_hash: The block hash, or ``None`` for NIL votes.
 
         Returns:
-            The signed votes, possibly empty.
+            The signed votes, at most one per voter, possibly empty. An
+            equivocator's vote is included for the value it is for, whether it
+            arrived first or second.
         """
-        votes = self._slots.get((height, round, phase), {})
-        return tuple(
-            votes[voter] for voter in sorted(votes) if votes[voter].block_hash == block_hash
-        )
+        slot = (height, round, phase)
+        chosen = {
+            voter: vote
+            for voter, vote in self._slots.get(slot, {}).items()
+            if vote.block_hash == block_hash
+        }
+        for voter, later in self._conflicting.get(slot, {}).items():
+            if block_hash in later:
+                chosen.setdefault(voter, later[block_hash])
+        return tuple(chosen[voter] for voter in sorted(chosen))
 
     def certificate(self, height: int, round: int, block_hash: str) -> CommitCertificate:
         """Build the commit certificate proving that ``block_hash`` was finalized.
@@ -386,3 +409,4 @@ class VoteSet:
         """
         for slot in [slot for slot in self._slots if slot[0] < height]:
             del self._slots[slot]
+            self._conflicting.pop(slot, None)

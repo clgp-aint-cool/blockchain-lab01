@@ -631,6 +631,44 @@ def test_round_skip_needs_f_plus_one_validators_in_the_higher_round():
     assert ("round_skip", 3) in [(e, f.get("to_round")) for e, f in net.events["V0"]]
 
 
+def test_equivocators_votes_count_for_the_block_that_gets_committed():
+    """T7 stall: V7–V9 send V0 a precommit for B first, then their precommit for A.
+
+    Only V1–V4 precommit A honestly, so V0 reaches 7 only if the equivocators'
+    second votes count for A too. Before the fix they were dropped and V0 waited
+    forever at height 1 while the other nodes moved on.
+    """
+    net = Network(10, drop=lambda src, dst, message: True)
+    net.start(only=["V0"])
+    engine = net.engines["V0"]
+    proposer = proposer_for(net.ids, 1, 0)
+    block = net.make_block(proposer, 1, 0, sample_txs()[:1], parent_hash=GENESIS_HASH)
+    other = net.make_block(proposer, 1, 0, sample_txs()[:2], parent_hash=GENESIS_HASH)
+    net.deliver("V0", Message(Kind.BODY, proposer, 1, block))
+    digest = block_hash(block.header)
+
+    for voter in ("V7", "V8", "V9"):
+        fake = net.make_vote(voter, Phase.PRECOMMIT, 1, 0, block_hash(other.header))
+        net.deliver("V0", Message(Kind.VOTE, voter, 1, fake))
+    for voter in ("V7", "V8", "V9", "V1", "V2", "V3", "V4"):
+        vote = net.make_vote(voter, Phase.PRECOMMIT, 1, 0, digest)
+        net.deliver("V0", Message(Kind.VOTE, voter, 1, vote))
+
+    assert net.hashes("V0") == [digest]
+    assert engine.height == 2
+    certificate = net.finalized["V0"][0][1]
+    assert sorted(vote.voter for vote in certificate.precommits) == [
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V7",
+        "V8",
+        "V9",
+    ]
+    assert len(engine.votes.equivocations) == 3  # still detected and reported
+
+
 def test_conflicting_proposal_that_gets_committed_is_still_finalized():
     """An equivocating proposer's second block reaches V0 first; the others commit the first one."""
     net = Network(4, drop=lambda src, dst, message: True)

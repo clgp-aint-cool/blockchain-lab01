@@ -62,7 +62,7 @@ def test_duplicate_vote_is_counted_once():
     assert votes.count(1, 0, Phase.PREVOTE, HASH_A) == 1
 
 
-def test_equivocation_keeps_first_vote_and_records_evidence():
+def test_equivocation_counts_each_vote_for_its_own_value_and_records_evidence():
     keys = _keys(4)
     votes = _vote_set(keys)
     first = _vote(keys, "V1", block_hash=HASH_A)
@@ -73,8 +73,32 @@ def test_equivocation_keeps_first_vote_and_records_evidence():
     assert votes.add(second) == "equivocation"
 
     assert votes.count(1, 0, Phase.PREVOTE, HASH_A) == 1
-    assert votes.count(1, 0, Phase.PREVOTE, HASH_B) == 0
+    assert votes.count(1, 0, Phase.PREVOTE, HASH_B) == 1
+    assert votes.total(1, 0, Phase.PREVOTE) == 1  # still one voter
+    assert votes.voters(1, 0) == {"V1"}
+    assert votes.votes_for(1, 0, Phase.PREVOTE, HASH_B) == (second,)
     assert votes.equivocations == [(first, second)]
+
+
+@pytest.mark.parametrize("n", [4, 10])
+def test_f_equivocators_cannot_give_two_blocks_a_quorum(n):
+    """Quorum intersection: double-counting at most f equivocators is still safe."""
+    keys = _keys(n)
+    votes = _vote_set(keys)
+    ids = sorted(keys)
+    f = (n - 1) // 3
+    byzantine, honest = ids[:f], ids[f:]
+    for voter in byzantine:  # vote for both blocks, in both orders
+        votes.add(_vote(keys, voter, block_hash=HASH_A))
+        votes.add(_vote(keys, voter, block_hash=HASH_B))
+    split = len(honest) // 2 + 1  # the most honest votes A can get while B still has some
+    for voter in honest[:split]:
+        votes.add(_vote(keys, voter, block_hash=HASH_A))
+    for voter in honest[split:]:
+        votes.add(_vote(keys, voter, block_hash=HASH_B))
+
+    reached = [h for h in (HASH_A, HASH_B) if votes.count(1, 0, Phase.PREVOTE, h) >= votes.quorum]
+    assert len(reached) <= 1
 
 
 def test_block_versus_nil_is_also_equivocation():
