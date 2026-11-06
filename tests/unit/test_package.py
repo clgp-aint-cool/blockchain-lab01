@@ -105,3 +105,28 @@ def test_missing_grading_entry_point_rejects_incomplete_archive(submission):
     (root / "tests/run_tests.py").unlink()
     with pytest.raises(ValueError, match="tests/run_tests.py"):
         package.build_archive(root, report, output)
+
+
+def test_repo_only_readme_sections_are_left_out_of_archive(submission):
+    root, report, output = submission
+    readme = root / "README.md"
+    readme.write_text(
+        readme.read_text(encoding="utf-8")
+        + "\n\nTrước\n\n<!-- repo-only: dashboard -->\n### Web\n\npython dashboard/server.py\n"
+        + "<!-- /repo-only -->\n\nSau\n",
+        encoding="utf-8",
+    )
+    result = package.build_archive(root, report, output)
+    with ZipFile(result) as archive:
+        text = archive.read(result.stem + "/README.md").decode("utf-8")
+    assert "dashboard" not in text and "repo-only" not in text
+    assert "Trước\n\nSau\n" in text and "| 22120001 |" in text
+
+
+def test_unbalanced_repo_only_marker_does_not_create_archive(submission):
+    root, report, output = submission
+    readme = root / "README.md"
+    readme.write_text(readme.read_text(encoding="utf-8") + "\n<!-- repo-only -->\n", "utf-8")
+    with pytest.raises(ValueError, match="repo-only"):
+        package.build_archive(root, report, output)
+    assert not output.exists()
