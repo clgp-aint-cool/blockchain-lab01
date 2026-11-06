@@ -341,7 +341,7 @@ Các lỗi dưới đây chỉ lộ ra khi chạy nhiều process với lỗi m�
 \subsection{Cách chạy}
 Một lệnh duy nhất chạy toàn bộ: \code{python tests/run\_tests.py}; chọn kịch bản bằng \code{-{}-scenario T1 … T8}, chỉ unit bằng \code{-{}-unit}, chỉ E2E bằng \code{-{}-e2e}. Mỗi test E2E khởi động 10 process \code{run\_node} trên TCP loopback, chờ chạy xong rồi kiểm nội dung results, state, số giao dịch và event log, không chỉ dựa vào exit code. Unit test (28 file) kiểm riêng chữ ký và domain, encoding chuẩn tắc, nonce, ownership, state hash, quorum, locking, round-skip, polka evidence, framing, HELLO, gossip, quyết định của FaultInjector và rate limit.
 
-\textbf{Kết quả lần chạy đầy đủ (ngày 06/11/2026, macOS, Python 3.10):} \textbf{363 test pass}, 0 fail, tổng thời gian 113,9\,s, exit code 0. T1 còn được chạy với 8, 9 và 10 validator, có và không có drop.
+\textbf{Kết quả lần chạy đầy đủ (ngày 06/11/2026, macOS, Python 3.10):} \textbf{365 test pass}, 0 fail, tổng thời gian 113,1\,s, exit code 0. T1 còn được chạy với 8, 9 và 10 validator, có và không có drop.
 
 \subsection{Kết quả từng kịch bản E2E}
 Số liệu ``quan sát'' lấy từ \code{logs/events} và \code{logs/results} của lần chạy mỗi scenario bằng launcher (cộng dồn 10 node).
