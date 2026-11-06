@@ -341,7 +341,7 @@ Các lỗi dưới đây chỉ lộ ra khi chạy nhiều process với lỗi m�
 \subsection{Cách chạy}
 Một lệnh duy nhất chạy toàn bộ: \code{python tests/run\_tests.py}; chọn kịch bản bằng \code{-{}-scenario T1 … T8}, chỉ unit bằng \code{-{}-unit}, chỉ E2E bằng \code{-{}-e2e}. Mỗi test E2E khởi động 10 process \code{run\_node} trên TCP loopback, chờ chạy xong rồi kiểm nội dung results, state, số giao dịch và event log, không chỉ dựa vào exit code. Unit test (28 file) kiểm riêng chữ ký và domain, encoding chuẩn tắc, nonce, ownership, state hash, quorum, locking, round-skip, polka evidence, framing, HELLO, gossip, quyết định của FaultInjector và rate limit.
 
-\textbf{Kết quả lần chạy đầy đủ (ngày 05/11/2026, macOS, Python 3.10):} \textbf{362 test pass}, 0 fail, tổng thời gian 105,9\,s, exit code 0. Test chạy lâu nhất là T5 (21,7\,s); T1 còn được chạy với 8, 9 và 10 validator, có và không có drop.
+\textbf{Kết quả lần chạy đầy đủ (ngày 06/11/2026, macOS, Python 3.10):} \textbf{363 test pass}, 0 fail, tổng thời gian 113,9\,s, exit code 0. T1 còn được chạy với 8, 9 và 10 validator, có và không có drop.
 
 \subsection{Kết quả từng kịch bản E2E}
 Số liệu ``quan sát'' lấy từ \code{logs/events} và \code{logs/results} của lần chạy mỗi scenario bằng launcher (cộng dồn 10 node).
@@ -398,10 +398,36 @@ Sau khi chạy xong, thanh điều khiển (về đầu, \textbf{Lùi}, \textbf{
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.82\linewidth]{demo-replay.png}
+\includegraphics[width=0.6\linewidth]{demo-replay.png}
 \caption{Xem lại giai đoạn height 2 · round 0 · PREVOTE của T6: 9 phiếu nil, 1 phiếu cho \code{77db9b}, chưa đủ $2f+1$.}
 \label{fig:demo-replay}
 \end{figure}
+
+\subsection{T1 với giao dịch nạp sẵn và giao dịch do người dùng gửi}
+Khi chạy T1 bình thường, các node \emph{không} gửi giao dịch cho nhau. Trước khi bắt đầu đồng thuận, mỗi validator tự ký 20 giao dịch của scenario và nạp vào mempool của chính nó với \code{broadcast=False}. Vì cả 10 node đều có sẵn cùng tập này, gossip thêm chỉ tạo lưu lượng trùng. Để thử đường đi thật của một giao dịch, dashboard có chế độ \textbf{chạy liên tục}: mạng vẫn nạp sẵn 20 giao dịch scenario, chạy tới khi người dùng bấm dừng, và cho phép gửi giao dịch mới (ví dụ của Alice) qua \code{l1sim.client} tới một node bất kỳ. Ở chế độ này proposer giữ đề xuất round 0 khoảng 0,6\,s, ít hơn \code{timeout\_propose} = 1\,s, để giao dịch kịp vào mempool. Bảng~\ref{tab:t1-tx} so sánh hai cách.
+
+{\footnotesize
+\renewcommand{\arraystretch}{1.1}
+\begin{longtable}{@{}L{2.6cm} L{5.6cm} L{7.1cm}@{}}
+\caption{Giao dịch nạp sẵn và giao dịch do người dùng gửi trong T1.}\label{tab:t1-tx}\\
+\toprule
+& \textbf{Nạp sẵn (T1 mặc định)} & \textbf{Người dùng gửi (Alice qua client)} \\
+\midrule
+\endhead
+Đường đi & Gọi hàm trong process, không qua mạng & TCP tới cổng của một node: kiểm HELLO có chữ ký, gửi frame \code{TX}, chờ phản hồi \\
+\rowcolor{rowgray}
+Mempool & 10 node có cùng mempool ngay từ height 1 & Ban đầu chỉ node nhận có giao dịch; node đó gossip sang các node khác, và mỗi node kiểm tra lại trước khi nhận \\
+Kiểm tra & \code{validate\_pending\_tx}: chữ ký $\to$ quyền sở hữu $\to$ nonce & Cùng hàm đó, chạy ở node nhận và ở từng node nhận qua gossip \\
+\rowcolor{rowgray}
+Phản hồi & Không có & Client nhận \code{tx\_id}, \code{accepted}, \code{reason}. \code{accepted} chỉ nghĩa là đã vào mempool, chưa phải đã commit \\
+Event log & Không có event nhận giao dịch & \code{client\_tx} ở node nhận, gossip loại TX; \code{tx\_rejected} nếu bị từ chối \\
+\rowcolor{rowgray}
+Height của giao dịch & Cố định: 20 giao dịch nằm ở height 1--5, mỗi block 4 giao dịch & Phụ thuộc thời điểm gửi: giao dịch chỉ vào block khi proposer của round đó đã có nó trong mempool \\
+Tái lập (T8) & Cùng seed thì cùng block hash và state hash & Không đảm bảo, vì height và block hash phụ thuộc lúc người dùng gửi \\
+\bottomrule
+\end{longtable}}
+
+Điều kiện PASS của T1 không đổi: mọi node trung thực finalize cùng block ở mọi height và có cùng state hash. Khi nhóm thử chế độ chạy liên tục, giao dịch hợp lệ của Alice được commit ở height sau cùng lúc trên cả 10 node. Bản sửa chữ ký bị từ chối với \code{bad\_signature}, bản ký bằng domain \code{HEADER} bị từ chối với \code{wrong\_domain}, và bản gửi lại giao dịch đã commit bị từ chối vì sai nonce. Giao dịch của người lạ (Mallory, không có trong genesis) bị từ chối với \code{bad\_signature}. Kill một node trong lúc chạy thì giao dịch vẫn được commit, và \code{check\_safety} khi dừng mạng vẫn cho PASS. Khác biệt duy nhất trong verdict là \code{total\_txs} bằng 20 cộng số giao dịch của người dùng đã commit. Như vậy nạp sẵn dùng để chấm T1 và T8 vì kết quả tái lập được, còn đường client dùng để kiểm phần nhận giao dịch và các guard của nó, vốn không xuất hiện khi mọi giao dịch đều hợp lệ và có sẵn.
 
 % ============================== TÀI LIỆU ==============================
 \begin{thebibliography}{9}\small
