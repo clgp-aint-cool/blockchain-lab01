@@ -92,3 +92,44 @@ def test_t1_through_dashboard_passes(server):
     finals = [f["height"] for f in frames if f["step"] == "finalize"]
     assert finals == list(range(1, max_height + 1))
     assert set(frames[-1]["chain"]) == {str(h) for h in range(1, max_height + 1)}
+
+
+def test_live_mode_accepts_and_commits_client_txs(server):
+    """Chạy liên tục: gửi TX qua cổng client thật, TX hợp lệ được commit, TX giả bị từ chối."""
+    import time
+
+    app, base = server
+    assert _call(base + "/api/run", {"file": "t1_normal.json", "live": True})["ok"]
+    deadline = time.monotonic() + 30
+    while _call(base + "/api/state")["tx"]["state_height"] < 1:  # TX của scenario đã vào chain
+        assert time.monotonic() < deadline, "mạng không finalize height 1"
+        time.sleep(0.3)
+
+    ok = _call(base + "/api/tx", {"sender": "Alice", "value": "xin chao", "node": "V3"})
+    assert ok["accepted"] is True and ok["status"] == "pending", ok
+    for tamper in ("bad_signature", "wrong_domain"):
+        bad = _call(base + "/api/tx", {"sender": "Bob", "value": "x", "tamper": tamper})
+        assert bad["accepted"] is False and bad["reason"] == tamper
+    outsider = _call(base + "/api/tx", {"sender": "Mallory", "value": "x"})
+    assert outsider["reason"] == "bad_signature"  # node không có public key của Mallory
+
+    deadline = time.monotonic() + 30
+    while True:
+        tx = _call(base + "/api/state")["tx"]
+        sent = next(r for r in tx["sent"] if r["id"] == ok["id"])
+        if sent["status"] == "committed":
+            break
+        assert time.monotonic() < deadline, "TX hợp lệ không được commit"
+        time.sleep(0.3)
+    state = {row["key"]: row for row in tx["state"]}
+    assert state["Alice/message"]["value"] == "xin chao"
+    assert state["Alice/message"]["height"] == sent["height"]
+    # Gửi lại nguyên văn TX vừa commit: nonce đã dùng nên bị từ chối.
+    replay = _call(base + "/api/tx", {"sender": "Alice", "tamper": "replay"})
+    assert replay["accepted"] is False and replay["reason"] == "bad_nonce"
+
+    _call(base + "/api/stop", {})  # Dừng mạng: Ctrl+C mọi node rồi check_safety phần đã có
+    app.run.wait(30)
+    final = _call(base + "/api/state")
+    assert final["run"]["status"] == "passed", final["run"]
+    assert final["verdict"]["max_height"] >= sent["height"]

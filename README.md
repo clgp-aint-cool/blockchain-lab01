@@ -131,6 +131,7 @@ python -m l1sim.run_node --id V1 --scenario config/t1_normal.json --base-port 19
 Phải khởi động đủ validator trước khi consensus bắt đầu. Nếu thiếu node hoặc
 địa chỉ sai, CLI có thể báo `timed out waiting for authenticated peers`.
 
+<!-- repo-only: scripts/package.py bỏ đoạn này khỏi README trong file zip nộp bài, vì zip không có dashboard/ -->
 ### Xem trên giao diện web
 
 Dashboard chạy đúng code ở `src/` (10 process `run_node` như launcher) và hiển thị
@@ -148,10 +149,16 @@ Mở <http://127.0.0.1:8080> (đổi cổng bằng `--port 9090`), chọn scenar
   có message bị drop;
 - thẻ từng validator và nút **Kill** (gửi Ctrl+C; node bị kill được tính là node lỗi);
 - bảng chain theo height, danh sách event và verdict của `check_safety` khi chạy xong.
+- khung **Giao dịch**: tự tạo TX (chọn sender, key, value, nonce, node nhận) hoặc TX lỗi
+  (sai chữ ký, sai domain, replay), xem node nhận hay từ chối và TX được commit ở height nào.
+
+Tick **Chạy liên tục** để mạng chạy mãi (khoảng 1 block/giây) tới khi bấm **Dừng mạng**,
+dùng khi muốn tự gửi TX, bật **Tự gửi TX** hoặc kill node trong lúc mạng đang chạy.
 
 Các ô drop, dup, GST, height ghi đè cấu hình mạng cho lần chạy đó mà không sửa file
 trong `config/`. Drop chỉ có tác dụng với message có height nhỏ hơn GST, ví dụ thử
 drop `0.2`, GST `3`. Chi tiết xem [dashboard/README.md](dashboard/README.md).
+<!-- /repo-only -->
 
 ## 4. Đọc log và reproduce
 
@@ -204,6 +211,5 @@ src/l1sim/          models, chữ ký, encoding, node và CLI
   verification/     kiểm tra safety và tính tái lập của results
 tests/              runner, dependencies, unit test và E2E test
 config/             genesis và các scenario
-dashboard/          web UI chạy và xem scenario (không nằm trong bài nộp)
 logs/               kết quả và log của các lần chạy
 ```

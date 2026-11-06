@@ -36,6 +36,17 @@ def member_ids(readme: str) -> list[str]:
     return members
 
 
+REPO_ONLY = re.compile(r"<!-- repo-only\b.*?-->.*?<!-- /repo-only -->\n*", re.DOTALL)
+
+
+def submission_readme(readme: str) -> str:
+    """Drop README parts about repository-only tools (e.g. dashboard/) left out of the zip."""
+    text = REPO_ONLY.sub("", readme)
+    if "<!-- repo-only" in text or "<!-- /repo-only -->" in text:
+        raise ValueError("README has an unbalanced <!-- repo-only --> marker.")
+    return text
+
+
 def submission_files(root: Path):
     """Select files explicitly; never follow symlinks outside the submission."""
     for directory in DIRECTORIES:
@@ -60,6 +71,7 @@ def submission_files(root: Path):
 def build_archive(root: Path, report: Path, output_dir: Path) -> Path:
     readme = (root / "README.md").read_text(encoding="utf-8")
     ids = member_ids(readme)
+    readme = submission_readme(readme)
     if not report.is_file() or report.is_symlink():
         raise ValueError(f"Report PDF not found: {report}")
     with report.open("rb") as stream:
