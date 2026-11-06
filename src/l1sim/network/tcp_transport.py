@@ -87,6 +87,13 @@ async def read_frame(reader: asyncio.StreamReader) -> bytes:
     return await reader.readexactly(length)
 
 
+def _stop_cancelled() -> bool:
+    """True nếu task hiện tại đang bị cancel từ bên ngoài (chỉ biết được từ Python 3.11)."""
+    task = asyncio.current_task()
+    cancelling = getattr(task, "cancelling", None)
+    return bool(cancelling and cancelling())
+
+
 class TcpTransport:
     def __init__(self, node_id: str, listen_addr: str, logger=None) -> None:
         self.node_id = node_id
@@ -194,6 +201,12 @@ class TcpTransport:
                 await writer.wait_closed()
             except (OSError, ConnectionError):
                 pass
+            except asyncio.CancelledError:
+                # Python 3.10: wait_closed() của kết nối client vừa bị cancel ném
+                # CancelledError dù stop() không bị cancel. Chỉ nuốt trường hợp đó.
+                if writer.transport.is_closing() and not _stop_cancelled():
+                    continue
+                raise
         self._client_tasks.clear()
         self._client_writers.clear()
         # Python >= 3.12.1: wait_closed() chờ mọi kết nối đi vào đóng hẳn,
