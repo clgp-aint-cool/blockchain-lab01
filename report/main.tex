@@ -1,0 +1,629 @@
+% Báo cáo đồ án cuối kỳ IoT - FloodSense HCM
+% Biên dịch: latexmk -xelatex -jobname=22127231_23127535_23127145 main.tex
+\documentclass[12pt,a4paper]{article}
+
+% ===================== THÔNG TIN NHÓM (điền vào đây) =====================
+\newcommand{\TenTVa}{Hà Gia Linh}        \newcommand{\MSSVa}{22127231}
+\newcommand{\TenTVb}{Cao Lê Gia Phú}     \newcommand{\MSSVb}{23127535}
+\newcommand{\TenTVc}{Khưu Ngọc Ý Vy}     \newcommand{\MSSVc}{23127145}
+\newcommand{\MonHoc}{Vật Lí cho Công Nghệ Thông Tin}
+\newcommand{\GiangVien}{\rule{5cm}{0.4pt}}
+% =========================================================================
+
+\usepackage[top=2.5cm,bottom=2.5cm,left=3cm,right=2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setdefaultlanguage{vietnamese}
+\setmainfont{Times New Roman}
+\setmonofont{Courier New}[Scale=0.95]
+\usepackage{amsmath}
+\usepackage{setspace}
+\setstretch{1.3}
+\setlength{\emergencystretch}{3em}
+\usepackage{xcolor,colortbl}
+\usepackage{graphicx}
+\usepackage{array,booktabs,longtable,tabularx}
+\usepackage{float}
+\usepackage{caption}
+\captionsetup{font=small, labelfont=bf, skip=6pt}
+\usepackage{enumitem}
+\setlist{nosep, leftmargin=1.4em, topsep=3pt}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, calc, decorations.pathmorphing}
+\usepackage[hidelinks]{hyperref}
+\usepackage{url}\def\UrlBreaks{\do\/\do-\do.\do_}
+
+\definecolor{brand}{HTML}{0B5394}
+\definecolor{rowgray}{HTML}{F2F5F9}
+\definecolor{grpA}{HTML}{DCEBFA}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\titleformat{\section}{\large\bfseries\color{brand}}{\thesection.}{0.5em}{\MakeUppercase}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection.}{0.5em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\itshape}{\thesubsubsection.}{0.5em}{}
+\titlespacing*{\section}{0pt}{14pt}{8pt}
+\titlespacing*{\subsection}{0pt}{10pt}{4pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small FloodSense HCM -- Trạm IoT giám sát \& cảnh báo ngập}
+\fancyhead[R]{\small \MonHoc}
+\fancyfoot[C]{\small \thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\lstset{basicstyle=\ttfamily\small, frame=single, rulecolor=\color{gray!50},
+  backgroundcolor=\color{gray!5}, columns=fullflexible, breaklines=true,
+  xleftmargin=4pt, xrightmargin=4pt, aboveskip=6pt, belowskip=6pt}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\fc}[1]{\textbf{\color{brand}#1}}
+\newcommand{\grp}[1]{\rowcolor{grpA}\multicolumn{4}{l}{\textbf{#1}}\\}
+
+\input{figures}
+
+\begin{document}
+\renewcommand{\refname}{Tài liệu tham khảo}
+
+% ============================== TRANG BÌA ==============================
+\begin{titlepage}
+\centering
+\setstretch{1.15}
+\vspace*{1.2cm}
+{\fontsize{17}{21}\selectfont\bfseries TRƯỜNG ĐẠI HỌC KHOA HỌC TỰ NHIÊN\par}
+{\large\bfseries ĐHQG-HCM\par}
+\vspace{1.4cm}
+\includegraphics[width=6.2cm]{logo-khtn.png}\par
+\vspace{1.4cm}
+{\fontsize{22}{27}\selectfont\bfseries BÁO CÁO ĐỒ ÁN CUỐI KỲ\par}
+\vspace{0.25cm}
+{\fontsize{16}{21}\selectfont\bfseries FLOODSENSE HCM -- TRẠM IOT GIÁM SÁT\\ VÀ CẢNH BÁO NGẬP ĐƯỜNG PHỐ\par}
+\vspace{0.3cm}
+{\large Môn học: \MonHoc\par}
+\vspace{2.2cm}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}l@{\hspace{1.2em}}l@{\hspace{2em}}l@{}}
+\textbf{Sinh viên thực hiện:} & \TenTVa & \MSSVa \\
+ & \TenTVb & \MSSVb \\
+ & \TenTVc & \MSSVc \\
+\end{tabular}\par
+\vfill
+{\large TP. Hồ Chí Minh, tháng 11 năm 2026\par}
+\end{titlepage}
+
+% ============================== MỤC LỤC ==============================
+\pagenumbering{roman}
+\setcounter{page}{2}
+\tableofcontents
+\newpage
+\listoffigures
+\listoftables
+\newpage
+\pagenumbering{arabic}
+
+% ======================================================================
+\section{Thông tin nhóm}
+
+\begin{table}[H]
+\centering
+\caption{Thông tin nhóm thực hiện}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabular}{|C{1cm}|L{5.8cm}|C{2.8cm}|L{4.4cm}|}
+\hline
+\rowcolor{rowgray}\textbf{STT} & \textbf{Họ và tên} & \textbf{MSSV} & \textbf{Vai trò chính} \\ \hline
+1 & \TenTVa & \MSSVa & TV1 -- Đo đạc: cảm biến, lõi xử lý, web bản đồ \\ \hline
+2 & \TenTVb & \MSSVb & TV2 -- Kết nối: MQTT, ThingsBoard, giả lập, backend \\ \hline
+3 & \TenTVc & \MSSVc & TV3 -- Cảnh báo, điều khiển: còi/đèn, rule chain, quản trị \\ \hline
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Tên sản phẩm:} FloodSense HCM.
+
+Trong toàn bộ báo cáo, các thành viên được gọi tắt là TV1, TV2, TV3 theo thứ tự trong bảng trên.
+
+% ======================================================================
+\section{Tên sản phẩm và lý do thực hiện}
+
+\subsection{Tên sản phẩm}
+
+\textbf{FloodSense HCM -- Trạm IoT giám sát và cảnh báo ngập đường phố TP.~Hồ Chí Minh.}
+
+FloodSense HCM là một trạm đo nhỏ gắn trên cột đèn cạnh miệng cống. Trạm dùng cảm biến siêu âm chống nước đo mực nước trên mặt đường và bộ đo mưa kiểu gáo lật đo lượng mưa. Từ số đo, trạm tự phân loại 4 mức ngập, bật đèn và còi ngay tại chỗ rồi gửi dữ liệu qua giao thức MQTT lên nền tảng ThingsBoard. Một trang web hiển thị bản đồ các trạm theo thời gian thực, và khi một điểm ngập nặng thì hệ thống gửi tin nhắn cảnh báo vào kênh Discord. Để kiểm thử mà không cần chờ trời mưa, nhóm viết thêm chương trình C++ giả lập 50 trạm chạy theo dữ liệu mưa và triều thật.
+
+\subsection{Bối cảnh và vấn đề}
+
+TP.~Hồ Chí Minh bị ngập do ba nguyên nhân thường xảy ra cùng lúc:
+\begin{itemize}
+  \item \textbf{Mưa lớn trong thời gian ngắn:} mưa chiều mùa mưa có thể đạt 50--100~mm chỉ trong 1--2 giờ, nước dâng nhanh hơn khả năng thoát của cống.
+  \item \textbf{Triều cường:} vào các tháng cuối năm, triều cường đẩy nước sông lên cao, nước tràn ngược qua cửa xả nên có đường ngập cả khi trời không mưa.
+  \item \textbf{Thiếu số liệu theo thời gian thực:} người dân thường chỉ biết một con đường bị ngập khi đã đi tới nơi; cơ quan quản lý thiếu dữ liệu mực nước theo từng điểm để điều tiết giao thông và cảnh báo sớm.
+\end{itemize}
+Ngoài ra, trạm quan trắc chuyên dụng có giá cao nên khó lắp dày đặc tại mọi điểm hay ngập.
+
+\subsection{Lý do nhóm chọn sản phẩm}
+
+\begin{enumerate}
+  \item \textbf{Gần gũi và có tác động thật:} ngập nước là chuyện hằng năm mà sinh viên gặp khi đi học, đi làm. Sản phẩm hướng tới một vấn đề có thật của thành phố.
+  \item \textbf{Bao trọn một hệ thống IoT:} đề tài có đủ cảm biến, xử lý tại thiết bị (edge), cơ cấu chấp hành (đèn, còi, màn hình), truyền thông MQTT, nền tảng IoT, rule engine, dashboard và cảnh báo đẩy. Mỗi thành viên đều có phần việc rõ ràng.
+  \item \textbf{Kiểm thử được mà không cần chờ mưa:} dữ liệu mưa lịch sử (Open-Meteo) và mô hình triều điều hòa cho phép phát lại một trận mưa thật bất cứ lúc nào trên 50 trạm giả lập.
+  \item \textbf{Chi phí thấp, dễ mở rộng:} một trạm khoảng 1,6 triệu đồng với linh kiện phổ biến; lắp thêm trạm mới chỉ cần nạp chương trình, trạm tự đăng ký với server.
+\end{enumerate}
+
+\subsection{Mục tiêu và phạm vi}
+
+\begin{itemize}
+  \item Đo mực nước trên mặt đường với sai số khoảng $\pm 1$~cm và lượng mưa với độ phân giải 0,2~mm.
+  \item Cảnh báo tại chỗ trong vòng 1 chu kỳ đo, kể cả khi mất mạng.
+  \item Dữ liệu hiện trên bản đồ web dưới 2 giây sau khi trạm gửi.
+  \item Phạm vi đồ án: \textbf{chỉ mô phỏng}, không chế tạo trạm thật. Gồm 1 trạm ESP32 chạy trên trình giả lập Wokwi và 50 trạm giả lập bằng chương trình C++, cùng kết nối nền tảng ThingsBoard Community Edition chạy bằng Docker. Bảng linh kiện và bản vẽ phác thảo dùng để dự toán khi triển khai thật.
+\end{itemize}
+
+% ======================================================================
+\section{Tổng quan hệ thống}
+
+Hệ thống gồm 4 lớp: thiết bị $\rightarrow$ MQTT $\rightarrow$ ThingsBoard $\rightarrow$ web (Hình~\ref{fig:arch}). Phần mềm phía server dự kiến đóng gói bằng Docker để dễ cài đặt.
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{\FigArchitecture}
+\caption{Kiến trúc tổng thể của FloodSense HCM}
+\label{fig:arch}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{Trạm đo:} vi điều khiển ESP32 đọc cảm biến, cảnh báo tại chỗ và gửi dữ liệu qua WiFi.
+  \item \textbf{MQTT broker:} ThingsBoard tích hợp sẵn broker MQTT ở cổng 1883.
+  \item \textbf{ThingsBoard CE:} quản lý thiết bị, lưu chuỗi thời gian vào PostgreSQL, chạy rule chain để tạo cảnh báo và gọi webhook Discord.
+  \item \textbf{Backend:} lấy dữ liệu từ ThingsBoard, cung cấp cho trang web và chuyển lệnh từ trang quản trị xuống trạm. Danh sách trạm (mã, tên, tọa độ, quận) đọc từ cùng một file cấu hình với công cụ giả lập nên chỉ khai báo một lần.
+  \item \textbf{Web React + Leaflet:} bản đồ thời gian thực, trang chi tiết trạm và trang quản trị.
+  \item \textbf{Công cụ giả lập (C++):} giả lập nhiều trạm, kết nối ThingsBoard như trạm thật.
+\end{itemize}
+
+% ======================================================================
+\section{Bảng tóm tắt chức năng}
+
+Sản phẩm có \textbf{13 chức năng chính} (mã F01--F13), chia thành 4 nhóm: 6 chức năng trên thiết bị, 3 trên nền tảng ThingsBoard, 3 trên web và 1 cho công cụ giả lập. Bảng~\ref{tab:func} liệt kê cả các chức năng con (chức năng nhỏ/phụ) của từng chức năng chính.
+
+\renewcommand{\arraystretch}{1.25}
+\begin{longtable}{|C{1.25cm}|L{4.1cm}|L{7.6cm}|C{1.1cm}|}
+\caption{Bảng tóm tắt toàn bộ chức năng của sản phẩm}\label{tab:func}\\
+\hline
+\rowcolor{rowgray}\textbf{Mã} & \textbf{Chức năng} & \textbf{Mô tả ngắn} & \textbf{Mục} \\ \hline
+\endfirsthead
+\hline
+\rowcolor{rowgray}\textbf{Mã} & \textbf{Chức năng} & \textbf{Mô tả ngắn} & \textbf{Mục} \\ \hline
+\endhead
+\hline \multicolumn{4}{r}{\small\itshape (tiếp trang sau)} \\
+\endfoot
+\hline
+\endlastfoot
+\grp{A. Thiết bị (trạm đo)} \hline
+\fc{F01} & \textbf{Đo mực nước} & Cảm biến siêu âm đo độ sâu nước trên mặt đường & \ref{sec:f01} \\ \hline
+F01.1 & Đo khoảng cách & Đo khoảng cách từ cảm biến tới mặt nước & \\ \hline
+F01.2 & Quy đổi mực nước & Đổi khoảng cách thành độ sâu nước ngập & \\ \hline
+F01.3 & Loại mẫu sai & Bỏ các lần đo bất thường & \\ \hline
+F01.4 & Lọc nhiễu & Lấy nhiều mẫu để chống nhiễu do sóng nước, rác & \\ \hline
+F01.5 & Phát hiện cảm biến lỗi & Báo lên server khi cảm biến không trả kết quả & \\ \hline
+\fc{F02} & \textbf{Đo lượng mưa} & Bộ đo mưa gáo lật, 0,2 mm mỗi lần lật & \ref{sec:f02} \\ \hline
+F02.1 & Đếm lần lật & Đếm số lần gáo lật & \\ \hline
+F02.2 & Chống đếm sai & Không đếm trùng một lần lật & \\ \hline
+F02.3 & Tính lượng và cường độ mưa & Lượng mưa (mm) và cường độ mưa (mm/h) & \\ \hline
+\fc{F03} & \textbf{Phân loại 4 mức ngập} & SAFE, ALERT, WARNING, CRITICAL theo ngưỡng cấu hình được & \ref{sec:f03} \\ \hline
+F03.1 & So ngưỡng & Ngưỡng mặc định 20 / 35 / 50 cm & \\ \hline
+F03.2 & Chống nhấp nháy & Chỉ hạ mức khi nước rút hẳn, tránh đèn nhấp nháy & \\ \hline
+\fc{F04} & \textbf{Cảnh báo tại chỗ} & Đèn 3 màu, còi ở mức CRITICAL, LCD hiện số đo & \ref{sec:f04} \\ \hline
+F04.1 & Đèn trạng thái & Xanh (SAFE), vàng (ALERT), vàng nháy (WARNING), đỏ (CRITICAL) & \\ \hline
+F04.2 & Còi báo & Kêu ngắt quãng ở CRITICAL; có thể tắt từ xa & \\ \hline
+F04.3 & Màn hình LCD & Hiện mực nước, mức ngập, lượng mưa, trạng thái mạng & \\ \hline
+F04.4 & Hoạt động khi mất mạng & Đèn, còi, LCD vẫn chạy theo số đo, không phụ thuộc server & \\ \hline
+\fc{F05} & \textbf{Gửi dữ liệu lên server} & Chu kỳ gửi thích nghi theo mức ngập, đổi mức gửi ngay & \ref{sec:f05} \\ \hline
+F05.1 & Chu kỳ thích nghi & Trời khô gửi thưa, nước càng cao gửi càng dày & \\ \hline
+F05.2 & Gửi khi đổi mức & Đổi mức ngập thì gửi ngay, không chờ hết chu kỳ & \\ \hline
+F05.3 & Gửi tin cậy & Server xác nhận đã nhận, nếu không thì gửi lại & \\ \hline
+F05.4 & Đệm khi mất mạng & Giữ dữ liệu khi mất mạng, gửi bù khi có mạng & \\ \hline
+F05.5 & Tự kết nối lại & Tự kết nối lại khi mạng có trở lại & \\ \hline
+F05.6 & Gửi thuộc tính tĩnh & Phiên bản firmware, chiều cao lắp, tọa độ, quận & \\ \hline
+\fc{F06} & \textbf{Nhận cấu hình và lệnh từ xa} & Đổi ngưỡng, thử còi, tắt còi từ web & \ref{sec:f06} \\ \hline
+F06.1 & Đổi ngưỡng, chu kỳ & Áp dụng ngay, không cần nạp lại chương trình & \\ \hline
+F06.2 & Thử còi & Bật còi và đèn đỏ vài giây để kiểm tra & \\ \hline
+F06.3 & Tắt còi & Tắt còi đang kêu (thay cho nút nhấn tại chỗ) & \\ \hline
+F06.4 & Hỏi trạng thái & Trả về số đo và tình trạng hiện tại & \\ \hline
+\grp{B. Nền tảng ThingsBoard} \hline
+\fc{F07} & \textbf{Tự đăng ký thiết bị} & Trạm mới tự đăng ký, không cần tạo bằng tay & \ref{sec:f07} \\ \hline
+F07.1 & Đăng ký lần đầu & Trạm gửi tên và khóa chung của dự án & \\ \hline
+F07.2 & Lưu token & Lưu mã truy cập, các lần sau không cần đăng ký lại & \\ \hline
+\fc{F08} & \textbf{Tạo / xóa cảnh báo ngập} & Cảnh báo ngập nặng và trạm mất kết nối & \ref{sec:f08} \\ \hline
+F08.1 & Lưu chuỗi thời gian & Lưu toàn bộ lịch sử số đo & \\ \hline
+F08.2 & Tạo alarm & Mực nước từ 50 cm $\rightarrow$ cảnh báo ngập nghiêm trọng & \\ \hline
+F08.3 & Xóa alarm & Nước rút $\rightarrow$ tự xóa cảnh báo & \\ \hline
+F08.4 & Trạm mất kết nối & Quá 2 phút không có dữ liệu $\rightarrow$ cảnh báo & \\ \hline
+\fc{F09} & \textbf{Gửi cảnh báo Discord} & Một tin nhắn mỗi lần ngập CRITICAL & \ref{sec:f09} \\ \hline
+F09.1 & Nội dung tin nhắn & Tên trạm, quận, mực nước, lượng mưa, thời gian & \\ \hline
+F09.2 & Chống spam & Mỗi lần ngập chỉ gửi một tin & \\ \hline
+F09.3 & Báo trạm cần bảo trì & Gửi tin khi trạm mất kết nối & \\ \hline
+\grp{C. Trang web} \hline
+\fc{F10} & \textbf{Bản đồ thời gian thực} & Chấm màu theo mức ngập, tự cập nhật & \ref{sec:f10} \\ \hline
+F10.1 & Chấm màu trên bản đồ & Mỗi trạm một chấm, màu theo 4 mức, xám khi OFFLINE & \\ \hline
+F10.2 & Cập nhật tức thì & Đổi màu trong khoảng 2 giây, không cần tải lại trang & \\ \hline
+F10.3 & Danh sách trạm & Thanh bên liệt kê trạm xếp theo mực nước, lọc riêng trạm đang ngập & \\ \hline
+F10.4 & Tổng quan thành phố & Mực nước và lượng mưa trung bình, số trạm nguy cấp, cảnh báo, đang hoạt động & \\ \hline
+\fc{F11} & \textbf{Chi tiết trạm} & Biểu đồ mực nước, lượng mưa, lịch sử cảnh báo & \ref{sec:f11} \\ \hline
+F11.1 & Biểu đồ 24 giờ & Mực nước và lượng mưa theo thời gian & \\ \hline
+F11.2 & Lịch sử alarm & Thời điểm bật, xóa và mức nước cao nhất của từng lần ngập & \\ \hline
+F11.3 & Thông tin kỹ thuật & Sóng WiFi, lỗi cảm biến, lần gửi gần nhất & \\ \hline
+\fc{F12} & \textbf{Trang quản trị} & Đổi ngưỡng từng trạm, thử còi & \ref{sec:f12} \\ \hline
+F12.1 & Đăng nhập & Chỉ người vận hành mới vào được trang quản trị & \\ \hline
+F12.2 & Đổi ngưỡng & Đổi ngưỡng ngập cho từng trạm & \\ \hline
+F12.3 & Gửi lệnh & Nút thử còi / tắt còi, hiện kết quả trả về & \\ \hline
+\grp{D. Công cụ giả lập} \hline
+\fc{F13} & \textbf{Giả lập nhiều trạm} & Khoảng 50 trạm ảo chạy theo kịch bản mưa và triều & \ref{sec:f13} \\ \hline
+F13.1 & Sinh số đo hợp lý & Mực nước lên xuống theo mưa và triều & \\ \hline
+F13.2 & Kịch bản & Trời khô, mưa lớn, mưa trùng triều cường & \\ \hline
+F13.3 & Giống cảm biến thật & Số đo có nhiễu và đôi khi lỗi như cảm biến thật & \\ \hline
+F13.4 & Chạy nhiều trạm & Nhiều trạm cùng lúc, tua nhanh thời gian & \\ \hline
+F13.5 & Tiêm lỗi & Tạo lỗi mất mạng, hỏng cảm biến có chủ đích & \\ \hline
+F13.6 & Chạy thử không cần server & In dữ liệu ra màn hình để kiểm tra nhanh & \\
+\end{longtable}
+
+% ======================================================================
+\section{Mô tả chi tiết chức năng của sản phẩm và web}
+
+Phần này mô tả mỗi chức năng \textbf{làm gì} và \textbf{người dùng thấy gì}. Cách hiện thực cụ thể sẽ được nhóm quyết định trong quá trình làm theo kế hoạch ở Mục~\ref{sec:plan}.
+
+\subsection{Trạm đo (thiết bị)}
+
+Trạm đo tự ra quyết định tại chỗ: không cần server vẫn bật được đèn và còi. Server chỉ nhận kết quả, lưu lịch sử và phát cảnh báo diện rộng. Mỗi chu kỳ, trạm sẽ đo $\rightarrow$ lọc nhiễu $\rightarrow$ tính mực nước $\rightarrow$ xác định mức ngập $\rightarrow$ cập nhật đèn, còi, màn hình $\rightarrow$ gửi dữ liệu lên server.
+
+\subsubsection{F01 -- Đo mực nước}\label{sec:f01}
+Cảm biến siêu âm chống nước được treo trên cột, cách mặt đường khô khoảng 2~m, hướng thẳng xuống. Trạm đo khoảng cách tới mặt nước và suy ra độ sâu nước ngập trên mặt đường. Vì mặt nước gợn sóng hoặc có rác trôi qua, trạm sẽ lấy nhiều mẫu và loại các mẫu bất thường trước khi đưa ra kết quả. Nếu cảm biến nhiều lần liền không trả kết quả (đứt dây, bị bám bẩn), trạm báo lỗi cảm biến lên server để người vận hành đi bảo trì.
+
+\subsubsection{F02 -- Đo lượng mưa}\label{sec:f02}
+Bộ đo mưa kiểu gáo lật đặt ở đỉnh cột; mỗi lần gáo lật tương ứng 0,2~mm mưa. Trạm đếm số lần lật để tính lượng mưa và cường độ mưa. Số liệu mưa giúp người xem biết ngập do mưa hay do triều, và mưa lớn kèm nước dâng nhanh là dấu hiệu sắp ngập nặng.
+
+\subsubsection{F03 -- Phân loại 4 mức ngập}\label{sec:f03}
+Mực nước được chia thành 4 mức theo 3 ngưỡng. Các ngưỡng mặc định dưới đây có thể đổi từ xa cho từng trạm (F06, F12).
+
+\begin{table}[H]
+\centering
+\caption{Các mức ngập dự kiến}
+\label{tab:levels}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{|L{2.4cm}|C{2.8cm}|L{4.2cm}|L{4.6cm}|}
+\hline
+\rowcolor{rowgray}\textbf{Mức} & \textbf{Mực nước} & \textbf{Ý nghĩa} & \textbf{Cảnh báo tại chỗ} \\ \hline
+SAFE & dưới 20 cm & Đi lại bình thường & Đèn xanh \\ \hline
+ALERT & 20 -- 35 cm & Xe máy nên tránh & Đèn vàng \\ \hline
+WARNING & 35 -- 50 cm & Dễ chết máy xe & Đèn vàng nhấp nháy \\ \hline
+CRITICAL & từ 50 cm & Không nên đi qua & Đèn đỏ và còi \\ \hline
+\end{tabular}
+\end{table}
+
+Khi nước rút, trạm chỉ hạ mức khi nước đã xuống thấp hơn ngưỡng một khoảng nhỏ, để đèn và còi không bật tắt liên tục khi mặt nước dao động quanh ngưỡng.
+
+\subsubsection{F04 -- Cảnh báo tại chỗ}\label{sec:f04}
+Ba đèn xanh, vàng, đỏ và còi đặt ở mặt trước hộp để người đi đường nhìn thấy từ xa. Còi chỉ kêu khi ngập nặng và có thể tắt từ trang quản trị. Màn hình nhỏ hiển thị mực nước, mức ngập, lượng mưa và tình trạng kết nối. Phần cảnh báo tại chỗ hoạt động cả khi mất mạng.
+
+\subsubsection{F05 -- Gửi dữ liệu lên server}\label{sec:f05}
+Trạm gửi số đo lên ThingsBoard qua giao thức MQTT. Khi trời khô, trạm gửi thưa (khoảng 1 phút một lần) để tiết kiệm pin; nước càng cao gửi càng dày (tới vài giây một lần), và gửi ngay khi mức ngập thay đổi. Mỗi bản tin gồm mã trạm, mực nước, mức ngập, lượng mưa, tọa độ, cường độ sóng WiFi và trạng thái cảm biến. Khi mất mạng, trạm giữ lại dữ liệu và gửi bù khi có mạng trở lại, nên lịch sử không bị đứt đoạn.
+
+\subsubsection{F06 -- Nhận cấu hình và lệnh từ xa}\label{sec:f06}
+Người vận hành có thể điều khiển trạm từ web mà không cần ra hiện trường:
+\begin{itemize}
+  \item \textbf{Đổi cấu hình:} đổi ngưỡng ngập và chu kỳ gửi; trạm áp dụng ngay, không cần nạp lại chương trình.
+  \item \textbf{Thử còi:} bật còi và đèn đỏ vài giây để kiểm tra phần cứng.
+  \item \textbf{Tắt còi:} tắt còi đang kêu (thay cho nút nhấn tại chỗ).
+  \item \textbf{Hỏi trạng thái:} trạm trả về số đo và tình trạng hiện tại.
+\end{itemize}
+
+\subsection{Nền tảng ThingsBoard}
+
+\subsubsection{F07 -- Tự đăng ký thiết bị}\label{sec:f07}
+Khi lắp trạm mới, người lắp không phải tạo thiết bị bằng tay trên server. Lần đầu khởi động, trạm tự đăng ký với ThingsBoard bằng một khóa chung của dự án, nhận về mã truy cập riêng và lưu lại để dùng cho các lần sau.
+
+\subsubsection{F08 -- Tạo và xóa cảnh báo ngập}\label{sec:f08}
+ThingsBoard lưu toàn bộ lịch sử số đo. Khi một trạm báo mực nước từ 50~cm trở lên, hệ thống tạo cảnh báo ngập nghiêm trọng; khi nước rút thì tự xóa cảnh báo. Nếu một trạm im lặng quá 2 phút, hệ thống tạo cảnh báo trạm mất kết nối.
+
+\subsubsection{F09 -- Gửi cảnh báo Discord}\label{sec:f09}
+Khi có điểm ngập nghiêm trọng mới, hệ thống gửi một tin nhắn vào kênh Discord gồm tên trạm, quận, mực nước, lượng mưa và thời gian. Mỗi lần ngập chỉ gửi một tin, không gửi lặp lại khi nước vẫn còn cao. Trạm mất kết nối cũng được báo để người vận hành đi kiểm tra.
+
+\subsection{Trang web}
+
+\subsubsection{F10 -- Bản đồ thời gian thực}\label{sec:f10}
+Trang chính là bản đồ TP.~Hồ Chí Minh, mỗi trạm là một chấm màu: xanh, vàng, cam, đỏ theo 4 mức ngập và xám khi trạm mất kết nối. Bản đồ tự đổi màu trong vòng khoảng 2 giây sau khi trạm gửi số đo mà không cần tải lại trang. Bên cạnh bản đồ có:
+\begin{itemize}
+  \item danh sách trạm xếp theo mực nước từ cao xuống thấp, có thể lọc riêng các trạm đang ngập; bấm vào một trạm thì bản đồ di chuyển tới trạm đó;
+  \item ô tổng quan toàn thành phố: mực nước và lượng mưa trung bình đo tại các trạm, số trạm nguy cấp, cảnh báo và đang hoạt động.
+\end{itemize}
+
+\subsubsection{F11 -- Chi tiết trạm}\label{sec:f11}
+Bấm vào một trạm sẽ mở trang chi tiết gồm: biểu đồ mực nước và lượng mưa 24 giờ gần nhất; lịch sử các lần ngập (bắt đầu, kết thúc, mực nước cao nhất); và tình trạng kỹ thuật của trạm như sóng WiFi, lỗi cảm biến, lần gửi gần nhất.
+
+\subsubsection{F12 -- Trang quản trị}\label{sec:f12}
+Người vận hành đăng nhập để vào trang quản trị. Tại đây có thể đổi ngưỡng ngập riêng cho từng trạm và bấm nút thử còi, tắt còi. Kết quả trạm trả về được hiển thị ngay trên giao diện.
+
+\subsection{Công cụ giả lập}
+
+\subsubsection{F13 -- Giả lập nhiều trạm}\label{sec:f13}
+Để kiểm thử và demo mà không cần chờ trời mưa, nhóm sẽ viết một chương trình C++ giả lập khoảng 50 trạm đặt tại các điểm hay ngập của thành phố. Mỗi trạm giả lập kết nối tới ThingsBoard giống hệt trạm thật, chỉ khác là số đo được tính từ kịch bản thay vì đọc cảm biến. Công cụ dự kiến có:
+\begin{itemize}
+  \item kịch bản trời khô, mưa lớn và mưa trùng triều cường, dựa trên dữ liệu mưa và triều thực tế;
+  \item tua nhanh thời gian để một trận mưa vài giờ chạy xong trong vài phút;
+  \item tạo lỗi có chủ đích (trạm mất mạng, cảm biến hỏng) để kiểm tra các cảnh báo tương ứng.
+\end{itemize}
+Song song đó, mạch của trạm được dựng trên trình giả lập Wokwi thay cho trạm thật: cảm biến siêu âm HC-SR04 của Wokwi đóng vai JSN-SR04T (cùng cách đọc chân TRIG/ECHO), một nút bấm đóng vai gáo mưa (mỗi lần nhấn là một lần lật gáo).
+
+% ======================================================================
+\section{Phần cứng và danh sách linh kiện}
+
+\subsection{Sơ đồ khối và nối chân}
+
+ESP32 ở trung tâm, xung quanh là 5 khối ngoại vi: cảm biến siêu âm, bộ đo mưa, LCD, 3 đèn LED và còi (Hình~\ref{fig:wiring}). Cách nối chân dưới đây là phương án dự kiến, có thể điều chỉnh khi lắp thử.
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{\FigWiring}
+\caption{Sơ đồ khối phần cứng và nối chân ESP32}
+\label{fig:wiring}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Bảng nối chân}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{|L{3.4cm}|C{2.6cm}|L{8cm}|}
+\hline
+\rowcolor{rowgray}\textbf{Khối} & \textbf{GPIO} & \textbf{Giao tiếp} \\ \hline
+JSN-SR04T & 5 / 18 & TRIG / ECHO; ECHO qua cầu chia áp 5 V xuống 3,3 V \\ \hline
+Rain gauge & 19 & Ngắt cạnh xuống, điện trở kéo lên \\ \hline
+LCD 1602 I2C & 21 / 22 & SDA / SCL, địa chỉ 0x27 \\ \hline
+LED xanh/vàng/đỏ & 25 / 26 / 27 & Qua điện trở 220\,$\Omega$ \\ \hline
+Còi buzzer & 14 & Qua transistor NPN \\ \hline
+\end{tabular}
+\end{table}
+
+\textbf{Nguồn điện:} tấm pin mặt trời 6~V $\rightarrow$ mạch sạc TP4056 sạc 2 cell 18650 mắc song song $\rightarrow$ mạch boost 5~V cấp cho JSN-SR04T, LCD và còi; ESP32 lấy 3,3~V từ bộ ổn áp trên board. Một cầu chì 1~A bảo vệ ngắn mạch.
+
+\subsection{Danh sách linh kiện và bảng giá}
+
+Bảng~\ref{tab:bom} liệt kê linh kiện cho \textbf{một trạm}. Đồ án chỉ mô phỏng nên nhóm không mua linh kiện; bảng này là \textbf{dự toán} chi phí khi triển khai thật. Giá được tra ngày 23/10/2026 tại các trang bán ghi trong cột nguồn; các mục ghi ``ước tính'' là giá tham khảo thị trường, cần xác minh lại nếu triển khai.
+
+\renewcommand{\arraystretch}{1.3}
+\begin{longtable}{|C{0.6cm}|L{4.6cm}|C{0.9cm}|R{1.7cm}|R{1.8cm}|L{3.5cm}|}
+\caption{Danh sách linh kiện và bảng giá cho 1 trạm}\label{tab:bom}\\
+\hline
+\rowcolor{rowgray}\textbf{\#} & \textbf{Linh kiện} & \textbf{SL} & \textbf{Đơn giá (₫)} & \textbf{Thành tiền (₫)} & \textbf{Nguồn giá} \\ \hline
+\endfirsthead
+\hline
+\rowcolor{rowgray}\textbf{\#} & \textbf{Linh kiện} & \textbf{SL} & \textbf{Đơn giá (₫)} & \textbf{Thành tiền (₫)} & \textbf{Nguồn giá} \\ \hline
+\endhead
+1 & Kit ESP32 NodeMCU-32S CH340 (Ai-Thinker) & 1 & 175.000 & 175.000 & Hshop.vn \cite{hshop-esp32} \\ \hline
+2 & Cảm biến siêu âm chống nước JSN-SR04T V3.0 & 1 & 155.000 & 155.000 & Hshop.vn \cite{hshop-jsn} \\ \hline
+3 & Rain gauge gáo lật DFRobot SEN0575 (29,90 USD) & 1 & $\approx$780.000 & 780.000 & DFRobot \cite{dfrobot-rain} \\ \hline
+4 & Màn hình LCD1602 I2C (MKE-M07) & 1 & 105.000 & 105.000 & Hshop.vn \cite{hshop-lcd} \\ \hline
+5 & Hộp nhựa chống nước IP65 200$\times$120$\times$75 mm & 1 & 40.000 & 40.000 & Linhkienthanhcong \cite{ltc-box} \\ \hline
+6 & Mạch sạc TP4056 + mạch boost 5 V & 1 bộ & 30.000 & 30.000 & Ước tính \\ \hline
+7 & Pin 18650 kèm đế pin & 2 & 50.000 & 100.000 & Ước tính \\ \hline
+8 & Tấm pin mặt trời 6 V 2 W & 1 & 100.000 & 100.000 & Ước tính \\ \hline
+9 & LED 5 mm xanh/vàng/đỏ + điện trở 220\,$\Omega$ & 1 bộ & 10.000 & 10.000 & Ước tính \\ \hline
+10 & Còi buzzer 5 V + transistor NPN & 1 & 10.000 & 10.000 & Ước tính \\ \hline
+11 & Ốc siết cáp PG7, đai inox, dây nối, PCB đục lỗ, cầu chì & 1 bộ & 80.000 & 80.000 & Ước tính \\ \hline
+\rowcolor{rowgray}\multicolumn{4}{|r|}{\textbf{Tổng cộng}} & \textbf{1.585.000} & \\ \hline
+\end{longtable}
+
+\noindent Trong đó 5 mục có nguồn trích dẫn: 1.255.000~₫; 6 mục ước tính: 330.000~₫. Tỷ giá quy đổi giá DFRobot: 1 USD $\approx$ 26.000~₫.
+
+\noindent\textbf{Phương án tiết kiệm:} thay rain gauge DFRobot bằng module cảm biến mưa dạng tấm (khoảng 20.000~₫) thì tổng còn khoảng 825.000~₫, nhưng module này chỉ báo ``có mưa / không mưa'', không đo được lượng mưa. Bản demo dùng Wokwi và device-sim nên toàn bộ hệ thống chạy được trước khi mua linh kiện.
+
+% ======================================================================
+\section{Bản vẽ phác thảo sản phẩm}
+
+Các bản vẽ dưới đây do nhóm tự vẽ bằng TikZ, không sử dụng hình ảnh sản phẩm có sẵn. Đồ án không chế tạo vỏ trạm; bản vẽ thể hiện thiết kế dự kiến khi triển khai thật.
+
+\subsection{Hình dáng bên ngoài}
+
+\begin{figure}[H]
+\centering
+\FigExterior
+\caption{Hình dáng bên ngoài: trạm lắp trên cột đèn cạnh miệng cống}
+\label{fig:exterior}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Chú thích bản vẽ hình dáng bên ngoài}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{|C{0.8cm}|L{13.4cm}|}
+\hline
+\rowcolor{rowgray}\textbf{Số} & \textbf{Bộ phận} \\ \hline
+1 & Hộp nhựa IP65 kích thước 200$\times$120$\times$75 mm, nắp trong suốt \\ \hline
+2 & Màn hình LCD 16$\times$2, nhìn qua nắp hộp \\ \hline
+3 & Đèn trạng thái xanh / vàng / đỏ \\ \hline
+4 & Còi báo, lỗ thoát âm có lưới che \\ \hline
+5 & Tấm pin mặt trời 6 V 2 W, nghiêng khoảng 15° về hướng Nam \\ \hline
+6 & Phễu đo mưa gáo lật, đặt ở vị trí cao nhất, không bị che \\ \hline
+7 & Đầu dò siêu âm JSN-SR04T hướng thẳng xuống, cách mặt đường 200 cm \\ \hline
+8 & Ốc siết cáp PG7, đi dây từ dưới lên để nước không vào hộp \\ \hline
+9 & Đai inox ôm cột \\ \hline
+\end{tabular}
+\end{table}
+
+\noindent Trên hình, $d$ là khoảng cách cảm biến đo tới mặt nước; độ sâu ngập $H$ bằng chiều cao lắp cảm biến trừ đi $d$.
+
+\subsection{Cấu trúc bên trong}
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{\FigInterior}
+\caption{Cấu trúc bên trong: thân hộp (trái) và mặt trong của nắp (phải)}
+\label{fig:interior}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Chú thích bản vẽ cấu trúc bên trong}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{|C{0.8cm}|L{13.4cm}|}
+\hline
+\rowcolor{rowgray}\textbf{Số} & \textbf{Bộ phận} \\ \hline
+1 & ESP32 NodeMCU-32S cắm trên đế, bắt cột đồng vào tấm đế \\ \hline
+2 & Mạch điều khiển JSN-SR04T (đầu dò đặt ngoài hộp) \\ \hline
+3 & Mạch sạc TP4056, sạc pin từ tấm pin mặt trời \\ \hline
+4 & Mạch boost 5 V cấp cho cảm biến, LCD và còi \\ \hline
+5 & 2 pin 18650 mắc song song trong đế pin \\ \hline
+6 & Cầu chì 1 A bảo vệ ngắn mạch \\ \hline
+7 & Hàng terminal nối dây cảm biến bên ngoài \\ \hline
+8 & Gói hút ẩm silica gel \\ \hline
+9 & 4 ốc siết cáp PG7 ở đáy hộp \\ \hline
+10 & Màn hình LCD 1602 với mạch I2C PCF8574 (địa chỉ 0x27) \\ \hline
+11 & 3 LED 5 mm bắt xuyên nắp, trám keo chống nước \\ \hline
+12 & Còi buzzer 5 V \\ \hline
+13 & Gioăng cao su kín nước quanh nắp \\ \hline
+\end{tabular}
+\end{table}
+
+% ======================================================================
+\section{Bảng phân công công việc}
+
+Công việc được chia thành 16 hạng mục, mỗi hạng mục chỉ do \textbf{một} thành viên phụ trách. Tỷ trọng là phần trăm khối lượng của hạng mục trên toàn bộ đồ án (tổng 100\%).
+
+Để ai cũng làm trực tiếp với thiết bị, giao thức và nền tảng IoT, mỗi thành viên phụ trách \textbf{một lát cắt dọc} của hệ thống, đi từ ESP32 qua ThingsBoard lên tới web: TV1 lo phần \emph{đo đạc} (cảm biến, xử lý số đo, hiển thị số đo), TV2 lo phần \emph{kết nối} (MQTT, nền tảng, trạm giả lập, backend), TV3 lo phần \emph{cảnh báo và điều khiển} (còi/đèn, nhận lệnh, rule chain, trang quản trị).
+
+\renewcommand{\arraystretch}{1.3}
+\begin{longtable}{|C{0.8cm}|L{9.0cm}|C{2.4cm}|C{2cm}|}
+\caption{Bảng phân công công việc (dự kiến)}\label{tab:tasks}\\
+\hline
+\rowcolor{rowgray}\textbf{\#} & \textbf{Hạng mục công việc} & \textbf{Phụ trách} & \textbf{Tỷ trọng} \\ \hline
+\endfirsthead
+\hline
+\rowcolor{rowgray}\textbf{\#} & \textbf{Hạng mục công việc} & \textbf{Phụ trách} & \textbf{Tỷ trọng} \\ \hline
+\endhead
+1 & Thiết kế mạch, sơ đồ nối chân, mạch Wokwi & TV1 & 6\% \\ \hline
+2 & Đọc cảm biến siêu âm và bộ đo mưa trên ESP32 & TV1 & 8\% \\ \hline
+3 & Lõi xử lý C++: lọc nhiễu, phân loại mức ngập, unit test & TV1 & 8\% \\ \hline
+4 & Hoàn thiện trạm trên Wokwi, bản vẽ phác thảo, hướng dẫn chạy mô phỏng & TV1 & 5\% \\ \hline
+5 & Web: bản đồ, danh sách trạm, chi tiết trạm + biểu đồ & TV1 & 6\% \\ \hline
+6 & Kết nối WiFi/MQTT trên ESP32: tự đăng ký, gửi số đo, đệm khi mất mạng & TV2 & 7\% \\ \hline
+7 & Cài đặt và cấu hình ThingsBoard & TV2 & 4\% \\ \hline
+8 & Chương trình giả lập: sinh mực nước, kịch bản, cảm biến ảo & TV2 & 8\% \\ \hline
+9 & Chạy 50 trạm giả lập, tạo lỗi có chủ đích & TV2 & 6\% \\ \hline
+10 & Backend: cấp dữ liệu cho web, chuyển lệnh xuống trạm & TV2 & 8\% \\ \hline
+11 & Đèn, còi, LCD trên ESP32 & TV3 & 6\% \\ \hline
+12 & Nhận cấu hình và lệnh điều khiển trên ESP32 (đổi ngưỡng, thử/tắt còi) & TV3 & 5\% \\ \hline
+13 & Rule chain cảnh báo ngập, mất kết nối; gửi Discord & TV3 & 7\% \\ \hline
+14 & Web: lịch sử alarm, trang quản trị & TV3 & 6\% \\ \hline
+15 & Kiểm thử end-to-end, kịch bản demo & TV3 & 5\% \\ \hline
+16 & Tổng hợp báo cáo PDF, slide, dự toán linh kiện có trích dẫn giá & TV3 & 5\% \\ \hline
+\multicolumn{3}{|r|}{\textbf{Tổng}} & \textbf{100\%} \\ \hline
+\end{longtable}
+
+\begin{table}[H]
+\centering
+\caption{Tổng hợp tỷ lệ công việc theo thành viên}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{|L{5.2cm}|C{2.2cm}|C{3cm}|C{2.6cm}|}
+\hline
+\rowcolor{rowgray}\textbf{Thành viên} & \textbf{MSSV} & \textbf{Số hạng mục} & \textbf{Tỷ lệ} \\ \hline
+TV1 -- \TenTVa & \MSSVa & 5 (mục 1--5) & 33\% \\ \hline
+TV2 -- \TenTVb & \MSSVb & 5 (mục 6--10) & 33\% \\ \hline
+TV3 -- \TenTVc & \MSSVc & 6 (mục 11--16) & 34\% \\ \hline
+\end{tabular}
+\end{table}
+
+% ======================================================================
+\section{Kế hoạch thực hiện}\label{sec:plan}
+
+\subsection{Tiến độ tổng thể}
+
+Đồ án thực hiện trong 6 tuần, từ 05/11/2026 đến 16/12/2026, theo ba luồng song song ứng với ba lát cắt: đo đạc (TV1), kết nối (TV2), cảnh báo và điều khiển (TV3); cả ba luồng đều có phần việc trên ESP32, trên ThingsBoard/backend và trên web. Toàn bộ kế hoạch chỉ gồm việc mô phỏng: không có bước mua linh kiện, hàn mạch hay đóng hộp. Mốc tích hợp là cuối tuần 4: trạm ESP32 trên Wokwi và 50 trạm giả lập cùng hiện trên một bản đồ.
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{\FigGantt}
+\caption{Biểu đồ Gantt 6 tuần theo 16 hạng mục}
+\label{fig:gantt}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Lịch tuần}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|C{1.4cm}|C{3.2cm}|L{9.4cm}|}
+\hline
+\rowcolor{rowgray}\textbf{Tuần} & \textbf{Thời gian} & \textbf{Mốc chính} \\ \hline
+1 & 05/11 -- 11/11 & Chốt chức năng, linh kiện dự kiến; mạch Wokwi; ThingsBoard chạy bằng Docker \\ \hline
+2 & 12/11 -- 18/11 & Lõi xử lý có unit test; đọc được cảm biến siêu âm trên Wokwi \\ \hline
+3 & 19/11 -- 25/11 & Giả lập gửi dữ liệu 1 trạm; đèn, còi, LCD; backend API \\ \hline
+4 & 26/11 -- 02/12 & \textbf{Tích hợp}: ESP32 trên Wokwi + 50 trạm giả lập trên bản đồ; rule chain + Discord \\ \hline
+5 & 03/12 -- 09/12 & Hoàn thiện trạm Wokwi, bản vẽ phác thảo; trang quản trị; bắt đầu kiểm thử end-to-end \\ \hline
+6 & 10/12 -- 16/12 & Hoàn thiện kiểm thử, tài liệu, báo cáo, slide, video demo \\ \hline
+\end{tabular}
+\end{table}
+
+\subsection{Kế hoạch chi tiết từng hạng mục}
+
+Bảng~\ref{tab:plan} lập kế hoạch cho từng hạng mục trong bảng phân công (cùng số thứ tự), gồm các bước thực hiện, sản phẩm đầu ra và tiêu chí để xem là hoàn thành.
+
+\small
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.25}
+\begin{longtable}{|C{0.6cm}|L{2.6cm}|L{5.0cm}|L{2.6cm}|L{2.6cm}|C{1.0cm}|}
+\caption{Kế hoạch chi tiết cho từng hạng mục công việc}\label{tab:plan}\\
+\hline
+\rowcolor{rowgray}\textbf{\#} & \textbf{Hạng mục (người)} & \textbf{Các bước thực hiện} & \textbf{Đầu ra} & \textbf{Tiêu chí hoàn thành} & \textbf{Tuần} \\ \hline
+\endfirsthead
+\hline
+\rowcolor{rowgray}\textbf{\#} & \textbf{Hạng mục (người)} & \textbf{Các bước thực hiện} & \textbf{Đầu ra} & \textbf{Tiêu chí hoàn thành} & \textbf{Tuần} \\ \hline
+\endhead
+1 & Thiết kế mạch, Wokwi (TV1) & Chọn linh kiện; lập bảng chân GPIO; vẽ sơ đồ khối; dựng mạch 5 khối trên Wokwi & Sơ đồ khối, mạch Wokwi & Mạch Wokwi chạy đúng sơ đồ & 1 \\ \hline
+2 & Driver cảm biến (TV1) & Đọc cảm biến siêu âm trên Wokwi; đếm số lần nhấn nút (thay gáo mưa); in số đo để kiểm tra & Chương trình đọc 2 cảm biến & Số đo lệch $\leq$ 1 cm so với khoảng cách đặt trên Wokwi; đếm đúng số lần nhấn & 2--3 \\ \hline
+3 & Lõi xử lý C++ (TV1) & Viết phần lọc nhiễu, phân loại mức ngập, chu kỳ gửi, phát hiện lỗi cảm biến; viết unit test & Thư viện lõi và bộ unit test & Toàn bộ test pass; dùng chung cho ESP32 và giả lập & 1--2 \\ \hline
+4 & Trạm Wokwi, bản vẽ (TV1) & Chạy firmware đầy đủ trên Wokwi; thử đủ 4 mức ngập bằng cách chỉnh khoảng cách cảm biến; vẽ bản vẽ phác thảo; viết hướng dẫn chạy mô phỏng & Dự án Wokwi hoàn chỉnh, 2 bản vẽ, hướng dẫn chạy & Chạy liên tục 1 giờ không treo; người khác mở và chạy lại được & 5--6 \\ \hline
+5 & Web bản đồ, chi tiết (TV1) & Bản đồ chấm màu theo mức ngập; danh sách lọc trạm; trang chi tiết có biểu đồ 24 giờ & Giao diện web & Web đổi màu $<$ 2 s sau khi trạm gửi & 3--4 \\ \hline
+6 & MQTT trên ESP32 (TV2) & Kết nối WiFi; tự đăng ký thiết bị; gửi số đo theo chu kỳ; giữ dữ liệu khi mất mạng và gửi bù & Firmware kết nối ThingsBoard & Số đo hiện trên ThingsBoard; mất mạng không mất dữ liệu & 3--4 \\ \hline
+7 & Cài đặt ThingsBoard (TV2) & Cài ThingsBoard bằng Docker; tạo loại thiết bị cho trạm đo, bật tự đăng ký & Server ThingsBoard chạy được & Trạm đăng ký và gửi dữ liệu được & 1 \\ \hline
+8 & Chương trình giả lập (TV2) & Xây dựng cách sinh mực nước theo mưa và triều; đọc kịch bản; giả lập 2 cảm biến & Chương trình giả lập & Mực nước giả lập lên xuống hợp lý theo kịch bản & 2--3 \\ \hline
+9 & 50 trạm, tạo lỗi (TV2) & Kết nối MQTT cho trạm giả lập; chạy 50 trạm cùng lúc; tạo lỗi mất mạng, hỏng cảm biến & 50 trạm giả lập & 50 trạm hiện trên ThingsBoard; lỗi xảy ra đúng lúc & 4--5 \\ \hline
+10 & Backend API (TV2) & Cung cấp danh sách trạm, số đo, cảnh báo cho web; cập nhật thời gian thực; chuyển lệnh xuống trạm & Backend & Web nhận đúng dữ liệu và cập nhật kịp thời & 1--3 \\ \hline
+11 & Đèn, còi, LCD (TV3) & Điều khiển 3 đèn và còi theo mức ngập; hiển thị số đo lên LCD & Chương trình cảnh báo tại chỗ & Đèn/còi đổi đúng theo 4 mức; LCD cập nhật mỗi chu kỳ & 2--3 \\ \hline
+12 & Nhận lệnh trên ESP32 (TV3) & Nhận ngưỡng mới từ server; xử lý lệnh thử còi, tắt còi; báo lại kết quả cho server & Firmware nhận cấu hình, lệnh & Đổi ngưỡng, thử còi từ web chạy đúng & 4 \\ \hline
+13 & Rule chain, Discord (TV3) & Cấu hình tạo/xóa cảnh báo ngập, cảnh báo mất kết nối, gửi tin Discord & Cấu hình rule chain & Discord nhận đúng 1 tin mỗi lần ngập & 3--4 \\ \hline
+14 & Web alarm, quản trị (TV3) & Trang lịch sử cảnh báo; đăng nhập; đổi ngưỡng; nút thử/tắt còi & Trang quản trị & Mọi thao tác ghi xuống thiết bị thành công & 4--5 \\ \hline
+15 & Kiểm thử end-to-end (TV3) & Chạy 3 kịch bản (khô, mưa lớn, mưa + triều) và 2 lỗi (mất mạng, hỏng cảm biến); ghi kết quả & Biên bản kiểm thử, kịch bản demo & Mọi kịch bản cho kết quả đúng mong đợi & 5--6 \\ \hline
+16 & Báo cáo, slide, dự toán (TV3) & Tra giá linh kiện để dự toán (không mua), trích dẫn nguồn; gom phần viết của từng thành viên thành báo cáo; làm slide; quay video demo & File PDF và PPTX nộp bài & Đủ các mục theo yêu cầu đồ án & 5--6 \\ \hline
+\end{longtable}
+\normalsize\setlength{\tabcolsep}{6pt}
+
+% ======================================================================
+\section*{Kết luận}
+\addcontentsline{toc}{section}{Kết luận}
+
+Báo cáo trình bày kế hoạch xây dựng FloodSense HCM, một hệ thống IoT cho bài toán ngập đô thị gồm: trạm đo tự cảnh báo tại chỗ kể cả khi mất mạng; nền tảng ThingsBoard lưu dữ liệu, tạo cảnh báo và gửi tin Discord; trang web bản đồ thời gian thực cho người dân và trang quản trị cho người vận hành; cùng công cụ giả lập khoảng 50 trạm để kiểm thử. Đồ án chỉ thực hiện trên mô phỏng (Wokwi và công cụ giả lập); nếu triển khai thật, chi phí dự kiến khoảng 1,6 triệu đồng một trạm. Nhóm sẽ thực hiện trong 6 tuần theo phân công và kế hoạch ở Mục~\ref{sec:plan}.
+
+% ======================================================================
+\begin{thebibliography}{99}
+\addcontentsline{toc}{section}{Tài liệu tham khảo}
+\setlength{\itemsep}{2pt}
+\bibitem{tb-mqtt} ThingsBoard Authors. \textit{MQTT Device API Reference}. \url{https://thingsboard.io/docs/reference/mqtt-api/}
+\bibitem{tb-prov} ThingsBoard Authors. \textit{Device provisioning}. \url{https://thingsboard.io/docs/user-guide/device-provisioning/}
+\bibitem{tb-rule} ThingsBoard Authors. \textit{Rule Engine 2.0 -- Overview, Alarm nodes, REST API Call node}. \url{https://thingsboard.io/docs/user-guide/rule-engine-2-0/overview/}
+\bibitem{mqtt311} OASIS. \textit{MQTT Version 3.1.1}, OASIS Standard, 2014. \url{https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/mqtt-v3.1.1.html}
+\bibitem{paho} Eclipse Foundation. \textit{Eclipse Paho MQTT C++ Client}. \url{https://github.com/eclipse-paho/paho.mqtt.cpp}
+\bibitem{esp32} Espressif Systems. \textit{ESP32 Series Datasheet}. \url{https://www.espressif.com/en/support/documents/technical-documents}
+\bibitem{openmeteo} Open-Meteo. \textit{Historical Weather API}. \url{https://open-meteo.com/en/docs/historical-weather-api}
+\bibitem{kttv} Đài Khí tượng Thủy văn khu vực Nam Bộ. \textit{Dự báo thủy triều trạm Phú An, Nhà Bè}. \url{https://kttvnb.vn}
+\bibitem{wokwi} Wokwi. \textit{ESP32 Simulator Documentation}. \url{https://docs.wokwi.com}
+\bibitem{fastapi} FastAPI. \textit{WebSockets}. \url{https://fastapi.tiangolo.com/advanced/websockets/}
+\bibitem{leaflet} React-Leaflet. \textit{Documentation}. \url{https://react-leaflet.js.org}
+\bibitem{hshop-esp32} Hshop.vn. \textit{Kit RF thu phát WiFi BLE ESP32 NodeMCU-32S CH340 Ai-Thinker} (truy cập 23/10/2026). \url{https://hshop.vn/kit-rf-thu-phat-wifi-ble-esp32-nodemcu-32s-ch340-ai-thinker}
+\bibitem{hshop-jsn} Hshop.vn. \textit{Cảm biến siêu âm JSN-SR04T V3.0} (truy cập 23/10/2026). \url{https://hshop.vn/cam-bien-sieu-am-jsn-sr04t-v3-0-ultrasonic-sensor}
+\bibitem{dfrobot-rain} DFRobot. \textit{SEN0575 Tipping Bucket Rain Gauge} (truy cập 23/10/2026). \url{https://www.dfrobot.com/product-2689.html}
+\bibitem{hshop-lcd} Hshop.vn. \textit{Mạch hiển thị MKE-M07 LCD1602 I2C Module} (truy cập 23/10/2026). \url{https://hshop.vn/mach-hien-thi-mke-m07-lcd1602-i2c-module}
+\bibitem{ltc-box} Linh Kiện Thành Công. \textit{Hộp nhựa 200x120x75mm} (truy cập 23/10/2026). \url{https://linhkienthanhcong.com/hop-nhua-200x120x75mm}
+\end{thebibliography}
+
+\end{document}
