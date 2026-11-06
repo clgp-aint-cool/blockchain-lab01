@@ -148,6 +148,11 @@ Mở <http://127.0.0.1:8080> (đổi cổng bằng `--port 9090`), chọn scenar
   có message bị drop;
 - thẻ từng validator và nút **Kill** (gửi Ctrl+C; node bị kill được tính là node lỗi);
 - bảng chain theo height, danh sách event và verdict của `check_safety` khi chạy xong.
+- khung **Giao dịch**: tự tạo TX (chọn sender, key, value, nonce, node nhận) hoặc TX lỗi
+  (sai chữ ký, sai domain, replay), xem node nhận hay từ chối và TX được commit ở height nào.
+
+Tick **Chạy liên tục** để mạng chạy mãi (khoảng 1 block/giây) tới khi bấm **Dừng mạng**,
+dùng khi muốn tự gửi TX, bật **Tự gửi TX** hoặc kill node trong lúc mạng đang chạy.
 
 Các ô drop, dup, GST, height ghi đè cấu hình mạng cho lần chạy đó mà không sửa file
 trong `config/`. Drop chỉ có tác dụng với message có height nhỏ hơn GST, ví dụ thử

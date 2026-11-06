@@ -8,6 +8,7 @@
   :root { color-scheme:dark; --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --text:#e6e8ec; --muted:#8a92a3;
           --ok:#3fb950; --bad:#f85149; --warn:#d29922; --info:#58a6ff; }
   * { box-sizing: border-box; }
+  [hidden] { display:none !important; }
   body { margin:0; background:var(--bg); color:var(--text);
          font:13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
   code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
@@ -85,6 +86,25 @@
   .node.unreached { opacity:.45; }
   .legend { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; color:var(--muted); font-size:12px; margin-top:6px; }
   .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; vertical-align:-1px; }
+  .badge.stopping { background:var(--warn); color:#000; }
+  label.live { color:var(--text); border:1px solid var(--line); border-radius:6px; padding:3px 8px; }
+  label.live:has(input:checked) { border-color:#1f6feb; background:#0d2241; }
+  .txform { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .txform input[type=text] { width:120px; }
+  .txform .keyin { display:flex; align-items:center; border:1px solid var(--line); border-radius:6px; background:var(--bg); }
+  .txform .keyin span { padding-left:6px; color:var(--muted); }
+  .txform .keyin input { border:0; width:90px; padding-left:0; }
+  .txrow2 { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:8px; }
+  #txMsg { min-height:18px; margin-top:6px; }
+  .txgrid { display:grid; grid-template-columns: minmax(0,3fr) minmax(0,2fr); gap:12px; margin-top:10px; }
+  .txgrid h3 { font-size:12px; margin:0 0 6px; color:var(--muted); font-weight:600; }
+  .txgrid .scroll { max-height:300px; }
+  .pill { padding:1px 6px; border-radius:4px; font-size:11px; font-weight:600; }
+  .pill.committed { background:#1b4721; color:#7ee787; } .pill.pending { background:#3a2d0b; color:#e3b341; }
+  .pill.rejected { background:#3d1f20; color:#ffa198; }
+  tr.flash td { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background:#1f6feb55; } to { background:transparent; } }
+  @media (max-width: 1000px) { .txgrid { grid-template-columns: 1fr; } }
   @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -97,6 +117,7 @@
   <label title="network.gst_height (0 = tắt)">GST <input id="gst_height" type="number" step="1" min="0"></label>
   <label title="max_height">height <input id="max_height" type="number" step="1" min="1"></label>
   <label title="--timeout của mỗi run_node (giây)">timeout <input id="timeout" type="number" step="5" min="5" value="60"></label>
+  <label class="live" title="Mạng chạy tới khi bấm Dừng (max_height rất lớn, proposer chờ 0.6s mỗi block) để tự gửi TX và xem chúng được commit"><input type="checkbox" id="live"> Chạy liên tục</label>
   <button id="run">Chạy</button>
   <button id="stop" class="secondary" disabled>Dừng</button>
   <span id="status" class="badge">chưa chạy</span>
@@ -132,12 +153,45 @@
         <div id="stageEvents" class="feed mini mono"></div>
       </div>
     </section>
+    <section id="txbox">
+      <h2>Giao dịch <span class="hint" style="text-transform:none">(ký bằng khoá của sender rồi gửi tới cổng client của một node, giống <code>python -m l1sim.client</code>; node kiểm tra chữ ký → quyền sở hữu key → nonce rồi gossip cho cả mạng)</span></h2>
+      <div class="txform">
+        <label>Sender <select id="txSender"></select></label>
+        <label>Key <span class="keyin"><span id="txPrefix">Alice/</span><input id="txKey" type="text" value="message"></span></label>
+        <label>Value <input id="txValue" type="text" placeholder="nội dung"></label>
+        <label title="Để trống = nonce kế tiếp. Nhỏ hơn = replay (bad_nonce); lớn hơn = vào mempool nhưng chờ các nonce trước">Nonce <input id="txNonce" type="number" min="0" placeholder="tự động"></label>
+        <label>Gửi tới <select id="txNode"></select></label>
+        <label>Loại <select id="txTamper">
+          <option value="none">hợp lệ</option>
+          <option value="bad_signature">sửa chữ ký (bad_signature)</option>
+          <option value="wrong_domain">ký nhầm domain HEADER (wrong_domain)</option>
+          <option value="replay">gửi lại TX đã commit (replay)</option>
+        </select></label>
+        <button id="txSend">Gửi TX</button>
+      </div>
+      <div class="txrow2">
+        <label><input type="checkbox" id="autoTx"> Tự gửi TX hợp lệ mỗi</label>
+        <input id="autoEvery" type="number" min="0.5" step="0.5" value="2"> <span class="muted">giây (sender và node ngẫu nhiên)</span>
+        <span id="txStats" class="muted mono" style="margin-left:auto"></span>
+      </div>
+      <div id="txMsg" class="mono"></div>
+      <div class="txgrid">
+        <div>
+          <h3>TX đã gửi (mới nhất trên cùng)</h3>
+          <div class="scroll"><table id="txTable"></table></div>
+        </div>
+        <div>
+          <h3 id="stateTitle">State đã commit</h3>
+          <div class="scroll"><table id="stateTable"></table></div>
+        </div>
+      </div>
+    </section>
     <section>
       <h2>Validators <span class="hint" style="text-transform:none">(Kill = Ctrl+C node đó; node bị kill được tính là node lỗi khi kiểm tra)</span></h2>
       <div id="nodes" class="nodes"><span class="muted">Chọn scenario rồi bấm Chạy.</span></div>
     </section>
     <section>
-      <h2>Chuỗi đã finalize (mỗi ô = block hash node đó finalize ở height này)</h2>
+      <h2>Chuỗi đã finalize (mỗi ô = block hash node đó finalize ở height này)<span id="chainHint" class="hint" style="text-transform:none"></span></h2>
       <div class="scroll"><table id="chain"></table></div>
     </section>
     <section id="errbox" hidden>
@@ -223,9 +277,11 @@ async function run() {
     if (v !== "" && Number(v) !== Number(base)) overrides[k] = Number(v);
   }
   try {
-    await api("/api/run", {file: s.file, overrides, timeout: Number($("timeout").value) || 60});
+    const live = $("live").checked;
+    if (live) delete overrides.max_height;
+    await api("/api/run", {file: s.file, overrides, timeout: Number($("timeout").value) || 60, live});
   } catch (e) { alert(e.message); return; }
-  seq = 0; runName = null;
+  seq = 0; runName = null; txSeen = new Set(); txFirst = true;
   stopPlay(); rpIdx = null; timeline = null; $("stageinfo").hidden = true;
   $("feed").innerHTML = "";
   poll();
@@ -237,9 +293,11 @@ async function poll() {
   try { st = await api(`/api/state?since=${seq}`); } catch (e) { timer = setTimeout(poll, 1000); return; }
   if (st.run) render(st);
   $("dl").classList.toggle("off", !st.run);
-  const active = st.run && st.run.status === "running";
+  const active = st.run && (st.run.status === "running" || st.run.status === "stopping");
   $("run").disabled = active;
-  $("stop").disabled = !active;
+  $("stop").disabled = !(st.run && st.run.status === "running");
+  $("stop").textContent = st.run && st.run.live ? "Dừng mạng" : "Dừng";
+  if (!(st.run && st.run.status === "running")) setAuto(false);
   timer = setTimeout(poll, active ? 300 : 2000);
 }
 
@@ -324,7 +382,7 @@ function drawRing(st) {
   $("ring").innerHTML = svg;
 }
 
-const STATUS_VI = {running:"đang chạy", passed:"PASS", failed:"FAIL", error:"lỗi", stopped:"đã dừng"};
+const STATUS_VI = {running:"đang chạy", passed:"PASS", failed:"FAIL", error:"lỗi", stopped:"đã dừng", stopping:"đang dừng…"};
 
 function renderNet(st) {
   drawRing(st);
@@ -346,7 +404,9 @@ function renderNet(st) {
 
   // chain grid
   const ids = st.nodes.map((n) => n.id);
-  const heights = Object.keys(st.chain).map(Number).sort((a, b) => a - b);
+  const live = st.run.live;
+  const heights = Object.keys(st.chain).map(Number).sort((a, b) => live ? b - a : a - b);
+  $("chainHint").textContent = live ? ` · chạy liên tục: ${heights.length} height gần nhất, mới nhất trên cùng` : "";
   let html = `<tr><th>h</th><th>proposer</th><th>round</th><th>txs</th>${ids.map((i) => `<th>${esc(i)}</th>`).join("")}</tr>`;
   for (const h of heights) {
     const row = st.chain[h];
@@ -370,10 +430,11 @@ function render(st) {
   const r = st.run;
   if (runName !== r.name + r.base_port) { runName = r.name + r.base_port; $("feed").innerHTML = ""; prevLinks = {}; heat = {}; heatPeak = 1; }
   $("status").className = "badge " + r.status;
-  $("status").textContent = `${r.name}: ${STATUS_VI[r.status] || r.status}`;
+  $("status").textContent = `${r.name}${r.live ? " (liên tục)" : ""}: ${STATUS_VI[r.status] || r.status}`;
   const net = r.network;
+  renderTx(st);
   $("elapsed").textContent = `${r.elapsed}s · port ${r.base_port ?? "peers"} · drop ${net.drop_rate} dup ${net.duplicate_rate} gst ${net.gst_height}`
-    + (Object.keys(r.applied).length ? " (đã sửa)" : "")
+    + (Object.keys(r.applied).some((k) => k !== "live") ? " (đã sửa)" : "")
     + (net.drop_rate > 0 && !net.gst_height ? " · drop không có tác dụng khi GST = 0" : "");
 
   lastSt = st;
@@ -419,10 +480,13 @@ function render(st) {
       ["Tổng tx", v.total_txs],
     ];
     if (r.killed.length) rows.push(["Node bị kill", esc(r.killed.join(", "))]);
+    if (r.live) rows.splice(4, 1, ["Kiểm tra tới height", `${v.max_height} <span class="muted">(height mọi node trung thực đã tới lúc dừng)</span>`]);
     $("verdict").innerHTML = rows.map(([k, x]) => `<div class="row"><span class="muted">${k}</span><span>${x}</span></div>`).join("")
       + ((v.safety_violations || []).length ? `<pre class="err">${esc(JSON.stringify(v.safety_violations, null, 1))}</pre>` : "");
   } else {
-    $("verdict").innerHTML = `<span class="muted">${r.status === "running" ? "Đang chạy…" : "Không có verdict (đã dừng tay)."}</span>`;
+    const msg = r.status === "running" ? (r.live ? "Đang chạy liên tục… bấm Dừng mạng để kiểm tra chain đã có." : "Đang chạy…")
+      : r.status === "stopping" ? "Đang dừng các node rồi chạy check_safety…" : "Không có verdict (đã dừng tay).";
+    $("verdict").innerHTML = `<span class="muted">${msg}</span>`;
   }
 
   // stderr của node lỗi
@@ -430,6 +494,106 @@ function render(st) {
   $("errbox").hidden = !errs.length;
   $("errors").innerHTML = errs.map(([n, t]) => `<b>${esc(n)}</b><pre class="err">${esc(t)}</pre>`).join("");
 }
+
+// ---- giao dịch ---------------------------------------------------------------------------
+let txSeen = new Set();   // tx đã vẽ, để nháy dòng mới / dòng vừa đổi trạng thái
+let txFirst = true;
+let txSendersKey = "", txNodesKey = "";
+let autoTimer = null, autoN = 0, sending = false;
+const REASON_VI = {
+  bad_signature: "chữ ký sai / sender không đăng ký", wrong_domain: "ký sai domain", bad_nonce: "nonce cũ (replay)",
+  not_owner: "không sở hữu key", duplicate: "đã có trong mempool", max_height_reached: "đã tới max_height", node_stopped: "node đã dừng",
+};
+function txStatus(r, tx) {
+  if (r.status === "committed") return `<span class="pill committed">commit h=${r.height}</span>`;
+  if (r.status === "rejected") return `<span class="pill rejected" title="${esc(REASON_VI[r.reason] || "")}">từ chối: ${esc(r.reason)}</span>`;
+  const need = (tx.committed_nonce || {})[r.sender] ?? 0;
+  return r.nonce > need ? `<span class="pill pending" title="Block chỉ nhận nonce kế tiếp; TX này nằm trong mempool tới khi nonce ${need}..${r.nonce - 1} được commit">chờ nonce ${need}</span>`
+    : `<span class="pill pending">chờ commit</span>`;
+}
+function renderTx(st) {
+  const tx = st.tx, r = st.run;
+  if (!tx) return;
+  const running = r.status === "running";
+  const replay = $("txTamper").value === "replay";
+  for (const id of ["txSend", "txSender", "txNode", "txTamper", "autoTx"]) $(id).disabled = !running;
+  for (const id of ["txKey", "txValue", "txNonce"]) $(id).disabled = !running || replay;
+  // danh sách sender / node chỉ dựng lại khi đổi, để không mất lựa chọn đang chọn
+  const sk = tx.senders.map((x) => x.name).join(",");
+  if (sk !== txSendersKey) {
+    txSendersKey = sk;
+    $("txSender").innerHTML = tx.senders.map((x) => `<option>${esc(x.name)}</option>`).join("")
+      + `<option value="${esc(tx.outsider)}">${esc(tx.outsider)} (không đăng ký)</option>`;
+    $("txPrefix").textContent = $("txSender").value + "/";
+  }
+  const nk = st.nodes.map((n) => n.id).join(",");
+  if (nk !== txNodesKey) {
+    txNodesKey = nk;
+    $("txNode").innerHTML = `<option value="">ngẫu nhiên</option>` + st.nodes.map((n) => `<option>${esc(n.id)}</option>`).join("");
+  }
+  const cur = tx.senders.find((x) => x.name === $("txSender").value);
+  $("txNonce").placeholder = `tự động (${cur ? cur.next_nonce : 0})`;
+  $("txStats").textContent = `đã gửi ${tx.total_sent} · node nhận ${tx.accepted} · đã commit ${tx.committed} · tổng TX trên chain ${tx.committed_all}`;
+
+  const rows = tx.sent.map((x) => {
+    const key = x.id + x.status + x.at;
+    const fresh = !txFirst && !txSeen.has(key);
+    txSeen.add(key);
+    const kind = x.tamper === "none" ? "" : ` <span class="tag">${esc(x.tamper)}</span>`;
+    return `<tr class="${fresh ? "flash" : ""}" title="gửi lúc ${x.at}s · tx_id ${esc(x.id)}"><td><b>${esc(x.sender)}</b>${kind}</td>
+      <td>${txStatus(x, tx)}</td><td>${x.nonce}</td><td>${esc(x.node)}</td>
+      <td class="mono">${esc(x.key)} = ${esc(JSON.stringify(x.value))}</td></tr>`;
+  }).join("");
+  txFirst = false;
+  $("txTable").innerHTML = `<tr><th>sender</th><th>kết quả</th><th>nonce</th><th>node</th><th>key = value</th></tr>`
+    + (rows || `<tr><td colspan="5" class="muted">Chưa gửi TX nào. TX của scenario đã được nạp sẵn lúc khởi động (xem bảng state).</td></tr>`);
+  $("stateTitle").textContent = `State đã commit (tới height ${tx.state_height})`;
+  $("stateTable").innerHTML = `<tr><th>key</th><th>value</th><th>nonce</th><th>h</th></tr>`
+    + (tx.state.map((x) => `<tr><td class="mono">${esc(x.key)}</td><td class="mono">${esc(JSON.stringify(x.value))}</td><td>${x.nonce}</td><td>${x.height}</td></tr>`).join("")
+      || `<tr><td colspan="4" class="muted">Chưa có TX nào được commit.</td></tr>`);
+}
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+async function sendTx(body) {
+  if (sending) return;
+  sending = true;
+  try {
+    const x = await api("/api/tx", body);
+    $("txMsg").innerHTML = x.accepted
+      ? `<span class="ok">✓ ${esc(x.node)} nhận TX</span> <span class="muted">${esc(x.sender)} nonce ${x.nonce} · tx_id ${esc(x.id.slice(0, 12))}… · đang gossip, chờ vào block</span>`
+      : `<span class="no">✗ ${esc(x.node)} từ chối: ${esc(x.reason)}</span> <span class="muted">${esc(REASON_VI[x.reason] || "")}</span>`;
+  } catch (e) {
+    $("txMsg").innerHTML = `<span class="no">✗ ${esc(e.message)}</span>`;
+  } finally { sending = false; }
+  poll();
+}
+function aliveNodes() { return (lastSt ? lastSt.nodes : []).filter((n) => n.status === "running" || n.status === "starting").map((n) => n.id); }
+function manualTx() {
+  const sender = $("txSender").value;
+  const node = $("txNode").value || pick(aliveNodes());
+  sendTx({sender, key: sender + "/" + $("txKey").value.trim(), value: $("txValue").value,
+          nonce: $("txNonce").value === "" ? null : Number($("txNonce").value), node, tamper: $("txTamper").value});
+}
+function setAuto(on) {
+  clearInterval(autoTimer); autoTimer = null;
+  $("autoTx").checked = on;
+  if (!on) return;
+  const every = Math.max(0.5, Number($("autoEvery").value) || 2) * 1000;
+  autoTimer = setInterval(() => {
+    const senders = lastSt && lastSt.tx ? lastSt.tx.senders.map((x) => x.name) : [];
+    const nodes = aliveNodes();
+    if (!senders.length || !nodes.length) return;
+    const sender = pick(senders);
+    autoN += 1;
+    sendTx({sender, key: `${sender}/auto`, value: `auto-${autoN}`, nonce: null, node: pick(nodes), tamper: "none"});
+  }, every);
+}
+$("txSend").addEventListener("click", manualTx);
+$("txValue").addEventListener("keydown", (e) => { if (e.key === "Enter") manualTx(); });
+$("txSender").addEventListener("change", () => { $("txPrefix").textContent = $("txSender").value + "/"; if (lastSt) renderTx(lastSt); });
+$("txTamper").addEventListener("change", () => { if (lastSt) renderTx(lastSt); });
+$("autoTx").addEventListener("change", (e) => setAuto(e.target.checked));
+$("autoEvery").addEventListener("change", () => { if (autoTimer) setAuto(true); });
+$("live").addEventListener("change", () => { $("max_height").disabled = $("timeout").disabled = $("live").checked; });
 
 // ---- xem lại theo giai đoạn ----------------------------------------------------------------
 function short(h) { return h ? String(h).slice(0, 6) : "nil"; }
@@ -483,7 +647,7 @@ function stageSummary(fr) {
 }
 function updateBar() {
   const st = lastSt;
-  const show = !!(st && st.run && st.run.status !== "running");
+  const show = !!(st && st.run && !["running", "stopping"].includes(st.run.status));
   $("replay").hidden = !show;
   if (!show) return;
   const len = timeline ? timeline.length : 0;
